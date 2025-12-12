@@ -35,3 +35,6 @@ Thumbs.db
 .direnv/
 result
 result-*
+
+## pre-commit
+.pre-commit-config.yaml

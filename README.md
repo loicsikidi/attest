@@ -9,8 +9,7 @@ Because I needed to make some changes to the original code to fit my specific us
 Improvements over the original repo:
  * Migrate from `go-tpm/lecacy/tpm2` to `go-tpm/tpm2` in order to use "TPMDirect" API **ONLY**
  * Add support for ECC attestation keys
-  > [!NOTE]
-  > ECC support is now available in the original repo as well, but it wasn't the case when I started working on it.
+   * *Note: ECC support is now available in the original repo as well, but it wasn't the case when I started working on it.*
  * Refactor the code to make it more modular (e.g. `algorithm`, `capabilities`, `manufacturer`, etc. sub-packages)
  * Enrich `TPMInfo` struct with more fields (e.g. `Manufacturer`, `Model`, `FirmwareVersion`, etc.)
 
