@@ -1,0 +1,358 @@
+package endorsement
+
+import (
+	"fmt"
+
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/loicsikidi/attest/info"
+	"github.com/loicsikidi/attest/internal/utils"
+	"github.com/loicsikidi/go-tpm-kit/tpmutil"
+)
+
+var (
+	ErrUntrustedEK = fmt.Errorf("untrusted endorsement key")
+)
+
+// GetConfig configures the behavior of [GetCertificate].
+type GetConfig struct {
+	// Template specifies which EK template to use.
+	Template Template
+	// SkipPublicMatching skips generating the EK public key from the template.
+	//
+	// Notes:
+	//   * Generating the EK public key can be time-consuming as it involves CreatePrimary operations.
+	//   * It is secure to skip this step if proof of possession is performed indirectly
+	//     later in the attestation flow (e.g., via MakeCredential/ActivateCredential).
+	//     The MakeCredential challenge ensures that the TPM possesses the private key
+	//     corresponding to the EK certificate, providing cryptographic proof without
+	//     needing to generate the EK public key upfront.
+	SkipPublicMatching bool
+	// SkipCheck skips running [EK.Check] on the certificate found.
+	SkipCheck bool
+	// Info contains TPM information used for fallback certificate URL generation.
+	//
+	// Notes:
+	//   * the field is required only if you want to populate the EK.CertificateURL field when the certificate is not present.
+	//   * this field cannot be used with SkipPublicMatching=true, as generating the certificate URL requires the EK public key.
+	Info *info.TPMInfo
+}
+
+// CheckAndSetDefault validates and sets default values for GetConfig.
+func (c *GetConfig) CheckAndSetDefault() error {
+	if c.Template.Index == 0 {
+		return fmt.Errorf("template index cannot be 0")
+	}
+	if c.Template.Public.Type == tpm2.TPMAlgNull {
+		return fmt.Errorf("template public type cannot be TPMAlgNull")
+	}
+	if c.SkipPublicMatching {
+		// If skipping public matching, also skip check as it requires the public key.
+		c.SkipCheck = true
+	}
+	if c.Info != nil && c.SkipPublicMatching {
+		return fmt.Errorf("cannot use Info with SkipPublicMatching=true")
+	}
+	return nil
+}
+
+// GetCertificate retrieves a specific EK certificate from the TPM based on the provided template.
+// It returns an [EK] structure containing the certificate and optionally its public key.
+//
+// Example:
+//
+//	// Get RSA EK certificate with full validation
+//	ek, err := GetCertificate(tpm, GetConfig{
+//		Template: Template{
+//			Index:  RSACertIndex,
+//			Public: RSAEKTemplate,
+//		},
+//	})
+//
+//	// Get ECC EK certificate without validation
+//	ek, err := GetCertificate(tpm, GetConfig{
+//		Template: Template{
+//			Index:  ECCCertIndex,
+//			Public: ECCEKTemplate,
+//		},
+//		SkipCheck: true,
+//	})
+func GetCertificate(tpm transport.TPM, cfg GetConfig) (EK, error) {
+	if err := cfg.CheckAndSetDefault(); err != nil {
+		return EK{}, fmt.Errorf("invalid GetConfig: %w", err)
+	}
+
+	ek := EK{}
+
+	cert, err := ReadEKCertFromNVRAM(tpm, cfg.Template.Index)
+	if err != nil {
+		return EK{}, fmt.Errorf("failed to read EK certificate from NV index %X: %w", cfg.Template.Index, err)
+	}
+	ek.Certificate = cert
+
+	if !cfg.SkipPublicMatching {
+		pub, err := getOrCreateEKPublic(tpm, cfg.Template.Public.Type, cfg.Template)
+		if err != nil {
+			return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
+		}
+		ek.Public = pub
+	}
+
+	if cfg.Info != nil {
+		pubKey, err := ek.PublicKey()
+		if err != nil {
+			return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
+		}
+		ek.CertificateURL = EkCertURL(pubKey, cfg.Info.Manufacturer.ASCII)
+	}
+
+	if !cfg.SkipCheck {
+		if err := ek.Check(); err != nil {
+			return EK{}, fmt.Errorf("%v (index %X): %w", ErrUntrustedEK, cfg.Template.Index, err)
+		}
+	}
+
+	return ek, nil
+}
+
+// SearchConfig configures the behavior of [SearchCertificates].
+type SearchConfig struct {
+	// KeyType filters search by algorithm type. If 0, searches all key types.
+	KeyType tpm2.TPMAlgID
+	// SkipPublicMatching skips generating the EK public key from the template.
+	//
+	// Notes:
+	//   * Generating the EK public key can be time-consuming as it involves CreatePrimary operations.
+	//   * It is secure to skip this step if proof of possession is performed indirectly
+	//     later in the attestation flow (e.g., via MakeCredential/ActivateCredential).
+	//     The MakeCredential challenge ensures that the TPM possesses the private key
+	//     corresponding to the EK certificate, providing cryptographic proof without
+	//     needing to generate the EK public key upfront.
+	SkipPublicMatching bool
+	// SkipCheck skips running [EK.Check] on each certificate found.
+	SkipCheck bool
+	// Info contains TPM information used for fallback certificate URL generation.
+	//
+	// Notes:
+	//   * the field is required only if you want to populate the EK.CertificateURL field when the certificate is not present.
+	//   * this field cannot be used with SkipPublicMatching=true, as generating the certificate URL requires the EK public key.
+	Info *info.TPMInfo
+}
+
+// CheckAndSetDefault validates and sets default values for SearchConfig.
+func (c *SearchConfig) CheckAndSetDefault() error {
+	if c.KeyType != 0 && c.KeyType != tpm2.TPMAlgRSA && c.KeyType != tpm2.TPMAlgECC {
+		return fmt.Errorf("unsupported key type: %X", c.KeyType)
+	}
+	if c.SkipPublicMatching {
+		// If skipping public matching, also skip check as it requires the public key.
+		c.SkipCheck = true
+	}
+	if c.Info != nil && c.SkipPublicMatching {
+		return fmt.Errorf("cannot use Info with SkipPublicMatching=true")
+	}
+	return nil
+}
+
+// SearchCertificates searches for EK certificates in the TPM.
+// It returns a list of [EK] structures containing certificates and their public keys.
+//
+// Example:
+//
+//	// Search all EK certificates with full validation
+//	eks, err := SearchCertificates(tpm)
+//
+//	// Search only RSA certificates without validation
+//	eks, err := SearchCertificates(tpm, SearchConfig{
+//		KeyType: tpm2.TPMAlgRSA,
+//		SkipCheck: true,
+//	})
+func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchConfig) ([]EK, error) {
+	cfg, err := utils.OptionalArg(optionalCfg)
+	if err != nil {
+		cfg = SearchConfig{}
+	}
+	if err := cfg.CheckAndSetDefault(); err != nil {
+		return nil, err
+	}
+
+	var keyTypes []tpm2.TPMAlgID
+	if cfg.KeyType == 0 {
+		keyTypes = []tpm2.TPMAlgID{tpm2.TPMAlgRSA, tpm2.TPMAlgECC}
+	} else {
+		keyTypes = []tpm2.TPMAlgID{cfg.KeyType}
+	}
+
+	var results []EK
+	for _, keyType := range keyTypes {
+		templates := SearchAvailableTemplates(tpm, keyType)
+
+		for _, template := range templates {
+			ek, err := GetCertificate(tpm, GetConfig{
+				Template:           template,
+				SkipPublicMatching: cfg.SkipPublicMatching,
+				SkipCheck:          cfg.SkipCheck,
+				Info:               cfg.Info,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to get certificate for template %X: %w", template.Index, err)
+			}
+
+			results = append(results, ek)
+		}
+	}
+
+	return results, nil
+}
+
+// getOrCreateEKPublic tries to read the EK public key from persistent handle first,
+// then falls back to CreatePrimary if not found.
+func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template) (*tpm2.TPMTPublic, error) {
+	handle, ok := HandleByType[alg]
+	if ok {
+		rsp, err := tpm2.ReadPublic{
+			ObjectHandle: handle,
+		}.Execute(tpm)
+		if err == nil {
+			pub, err := rsp.OutPublic.Contents()
+			if err == nil && matchesTemplate(pub, template) {
+				return pub, nil
+			}
+		}
+	}
+
+	// Fallback: create the EK using the template
+	createRsp, closer, err := tpmutil.CreatePrimaryWithResponse(tpm, tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHEndorsement,
+			Auth:   tpmutil.NoAuth,
+		},
+		InPublic: tpm2.New2B(template.Public),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("CreatePrimary failed: %w", err)
+	}
+	defer closer() //nolint:errcheck
+
+	pub, err := createRsp.OutPublic.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get public contents: %w", err)
+	}
+
+	return pub, nil
+}
+
+// matchesTemplate verifies that the public key matches the expected template.
+func matchesTemplate(pub *tpm2.TPMTPublic, template Template) bool {
+	if pub.Type != template.Public.Type {
+		return false
+	}
+
+	switch pub.Type {
+	case tpm2.TPMAlgRSA:
+		pubParams, err := pub.Parameters.RSADetail()
+		if err != nil {
+			return false
+		}
+		templateParams, err := template.Public.Parameters.RSADetail()
+		if err != nil {
+			return false
+		}
+		return pubParams.KeyBits == templateParams.KeyBits
+
+	case tpm2.TPMAlgECC:
+		pubParams, err := pub.Parameters.ECCDetail()
+		if err != nil {
+			return false
+		}
+		templateParams, err := template.Public.Parameters.ECCDetail()
+		if err != nil {
+			return false
+		}
+		return pubParams.CurveID == templateParams.CurveID
+
+	default:
+		return false
+	}
+}
+
+// SearchAvailableTemplates searches for available EK templates in the TPM's NV indexes.
+// It returns a slice of [Template] that have data stored in their corresponding NV indexes.
+//
+// In other words, it checks which EK templates are supported by the TPM.
+//
+// The optional kty parameter filters results by key algorithm:
+//   - If not provided, searches all key types
+//   - If set to [tpm2.TPMAlgRSA] or [tpm2.TPMAlgECC], searches only that key type
+//
+// Example:
+//
+//	// Search all key types
+//	templates := SearchAvailableTemplates(tpm)
+//
+//	// Search only RSA keys
+//	templates := SearchAvailableTemplates(tpm, tpm2.TPMAlgRSA)
+func SearchAvailableTemplates(tpm transport.TPM, optionalKty ...tpm2.TPMAlgID) []Template {
+	var results []Template
+
+	// Get optional key type filter
+	keyType, err := utils.OptionalArg(optionalKty)
+	filterByKeyType := err == nil
+
+	var templatesToCheck []Template
+	if filterByKeyType {
+		templatesToCheck = TemplatesByType[keyType]
+	} else {
+		for _, templates := range TemplatesByType {
+			templatesToCheck = append(templatesToCheck, templates...)
+		}
+	}
+
+	// Check each template's NV index for data
+	for _, template := range templatesToCheck {
+		_, err := tpm2.NVReadPublic{
+			NVIndex: template.Index,
+		}.Execute(tpm)
+
+		if err == nil {
+			results = append(results, template)
+		}
+	}
+
+	return results
+}
+
+// SearchPersistedTemplates searches for EK keys that are persisted in the TPM.
+// TCG-compliant TPMs typically persist EKs at well-known handles:
+//   - RSA EK at handle 0x81010001 (i.e., [RSAHandle])
+//   - ECC EK at handle 0x81010002 (i.e., [ECCHandle])
+//
+// It returns a slice of corresponding [Template] to find easily to corresponding
+// EK certificates in NVRAM.
+//
+// Example:
+//
+//	templates := SearchPersistedTemplates(tpm)
+func SearchPersistedTemplates(tpm transport.TPM) []Template {
+	var results []Template
+
+	for _, handle := range HandleByType {
+		rsp, err := tpm2.ReadPublic{
+			ObjectHandle: handle,
+		}.Execute(tpm)
+		if err != nil {
+			continue
+		}
+		pub, err := rsp.OutPublic.Contents()
+		if err != nil {
+			continue
+		}
+		for _, template := range TemplatesByType[pub.Type] {
+			if matchesTemplate(pub, template) {
+				results = append(results, template)
+				break
+			}
+		}
+	}
+	return results
+}
