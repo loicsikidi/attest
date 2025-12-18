@@ -1,0 +1,25 @@
+version: 2
+
+project_name: attest
+
+# No build for this kind of release
+builds:
+  - skip: true
+
+release:
+  github:
+    owner: loicsikidi
+    name: "{{ .ProjectName }}"
+  draft: true
+  prerelease: auto
+  mode: append
+  footer: |
+    **Generated with GoReleaser 🚀**
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^test'
+      - '^typo'
