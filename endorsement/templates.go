@@ -4,18 +4,6 @@ import (
 	"github.com/google/go-tpm/tpm2"
 )
 
-var PublicTemplateByNVIndex = map[tpm2.TPMHandle]tpm2.TPMTPublic{
-	ECCCertIndex:        ECCEKTemplate,
-	ECCP256CertIndex:    ECCP256EKTemplate,
-	ECCP384CertIndex:    ECCP384EKTemplate,
-	ECCP521CertIndex:    ECCP521EKTemplate,
-	ECCSM2P256CertIndex: ECCSM2P256EKTemplate,
-	RSACertIndex:        RSAEKTemplate,
-	RSA2048CertIndex:    RSA2048EKTemplate,
-	RSA3072CertIndex:    RSA3072EKTemplate,
-	RSA4096CertIndex:    RSA4096EKTemplate,
-}
-
 type Template struct {
 	// Index is the NV index pointing to the EK certificate.
 	Index tpm2.TPMHandle
