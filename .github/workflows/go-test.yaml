@@ -22,6 +22,11 @@ jobs:
         deps:
           - locked
           - latest
+        # Exclude (go.mod, latest)
+        # root cause: latest version of golang.org/x/sys requires Go 1.24.0
+        exclude:
+          - go: { go-version-file: go.mod }
+            deps: latest
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
