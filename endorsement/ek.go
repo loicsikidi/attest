@@ -43,12 +43,30 @@ const (
 	AmdEKCertServiceURL   = "https://ftpm.amd.com/pki/aia/"
 )
 
+// Predefined handles for EKs as per TCG specification.
 var (
-	RSAHandle    tpm2.TPMHandle = 0x81010001 // RSA 2048 EK handle
-	ECCHandle    tpm2.TPMHandle = 0x81010002 // ECC P256 EK handle
-	RSACertIndex tpm2.TPMHandle = 0x1C00002  // Low-Range RSA 2048 EK certificate index
-	ECCCertIndex tpm2.TPMHandle = 0x1C0000A  // Low-Range ECC P256 EK certificate index
+	// RSA EK handle
+	//
+	// Source: TCG TPM v2.0 Provisioning Guidance v1.0, rev1.0, section 7.8
+	RSAHandle tpm2.TPMHandle = 0x81010001
+	// ECC EK handle
+	//
+	// Note: unfortunately TCG TPM v2.0 Provisioning Guidance v1.0, rev1.0, section 7.8
+	// does not specify a specific handle for ECC key.
+	// However, various TPM2 tools (e.g., go-tpm-tools) use the following handle
+	// as the de-facto standard. I've also confirmed with my own TPM (Nuvoton) that the
+	// ECC EK is indeed pre-provisioned at this handle.
+	//
+	// Sources:
+	//   - https://docs.kernel.org/security/tpm/tpm-security.html
+	//   - https://chromium.googlesource.com/chromiumos/platform2/+/main/vtpm/README.md#glinux-profile
+	ECCHandle tpm2.TPMHandle = 0x81010002
 )
+
+var HandleByType = map[tpm2.TPMAlgID]tpm2.TPMHandle{
+	tpm2.TPMAlgRSA: RSAHandle,
+	tpm2.TPMAlgECC: ECCHandle,
+}
 
 // EK is a burned-in endorcement key bound to a TPM. This optionally contains
 // a certificate that can chain to the TPM manufacturer.
@@ -83,23 +101,13 @@ func (ek *EK) PublicKey() (crypto.PublicKey, error) {
 	return tpmcrypto.PublicKey(ek.Public)
 }
 
-// equalPublicKeys compares two public keys for equality.
-func equalPublicKeys(a, b crypto.PublicKey) bool {
+// equal compares two public keys for equality.
+func equal(a, b crypto.PublicKey) bool {
 	switch pubA := a.(type) {
 	case *rsa.PublicKey:
-		pubB, ok := b.(*rsa.PublicKey)
-		if !ok {
-			return false
-		}
-		return pubA.E == pubB.E && pubA.N.Cmp(pubB.N) == 0
+		return pubA.Equal(b)
 	case *ecdsa.PublicKey:
-		pubB, ok := b.(*ecdsa.PublicKey)
-		if !ok {
-			return false
-		}
-		return pubA.Curve == pubB.Curve &&
-			pubA.X.Cmp(pubB.X) == 0 &&
-			pubA.Y.Cmp(pubB.Y) == 0
+		return pubA.Equal(b)
 	default:
 		return false
 	}
@@ -133,7 +141,7 @@ func (ek *EK) Check() error {
 	if err != nil {
 		return fmt.Errorf("get public key: %w", err)
 	}
-	if !equalPublicKeys(ek.Certificate.PublicKey, pub) {
+	if !equal(ek.Certificate.PublicKey, pub) {
 		return errors.New("internal public key doesn't match to EK certificate")
 	}
 	return nil
