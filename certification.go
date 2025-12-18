@@ -12,7 +12,7 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-// This has been modified by lsikidi.
+// This file has been modified by lsikidi.
 package attest
 
 import (
