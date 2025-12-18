@@ -25,8 +25,6 @@ jobs:
         # Exclude (go.mod, latest)
         # root cause: latest version of golang.org/x/sys requires Go 1.24.0
         exclude:
-        #   - go: { go-version: oldstable }
-        #     deps: latest
           - go: { go-version-file: go.mod }
             deps: latest
     steps:
