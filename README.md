@@ -10,7 +10,7 @@ This repo is a fork of `attest` package from the famous [go-attestation](https:/
 
 ## Why a fork?
 
-Because I needed to make some changes to the original code to fit my specific use cases and requirements. I've tried to keep the core functionality intact while adding my own enhancements and modifications.
+Because I needed to make some changes to the original code to fit my specific use cases in a side-project. I've tried to keep the core functionality intact while adding my own enhancements and modifications.
 
 Improvements over the original repo:
  * Migrate from `go-tpm/lecacy/tpm2` to `go-tpm/tpm2` in order to use "TPMDirect" API **ONLY**
@@ -18,10 +18,11 @@ Improvements over the original repo:
    * *Note: ECC support is now available in the upstream repo as well, but it wasn't the case when I started working on it.*
  * Refactor the code to make it more modular (e.g. `algorithm`, `capabilities`, `manufacturer`, etc. sub-packages)
  * Enrich `TPMInfo` struct with more fields (e.g. `Manufacturer`, `Model`, `FirmwareVersion`, etc.)
+ * Some new features (see [Changelog](CHANGELOG.md) for more details)
 
 > [!WARNING]
 > **Breaking change**
-> - drop support for Windows devices (it could be added back in the future if I need it) because I don't have access to Windows devices with TPMs for testing.
+> - **drop support for Windows** (it could be added back in the future if I need it) because I don't have access to Windows devices with TPMs for testing.
 
 ### Sync with upstream
 
@@ -32,6 +33,14 @@ I regularly review each merge from the upstream repo and I will sync the changes
 - [ ] Support permission to use TPM's keys (e.g. using passwords or enhanced authorization policies)
 - [ ] Use audit sessions for certain operations (e.g. `ActivateCredential`)
 
+## Should You Use This?
+
+**Probably not**. This fork is tailored to my specific needs and may not be suitable for general use. If you're looking for a TPM attestation library, I recommend using the original [go-attestation](https://github.com/google/go-attestation).
+
+## Disclaimer
+
+This is my personal project and it does not represent my employer. While I do my best to ensure that everything works, I take no responsibility for issues caused by this code.
+
 ## Acknowledgements
 
 This package is a very refactored version of two great packages:
@@ -40,14 +49,9 @@ This package is a very refactored version of two great packages:
 
 Make sure to check out the original work!
 
-## Should You Use This?
-
-**Probably not**. This fork is tailored to my specific needs and may not be suitable for general use. If you're looking for a TPM attestation library, I recommend using the original [go-attestation](https://github.com/google/go-attestation).
-
 ---
 
-> [!NOTE]
-> Find the original README below.
+*Find the original README below* ⬇️
 
 ## Example: device identity
 
