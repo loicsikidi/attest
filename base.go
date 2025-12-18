@@ -96,6 +96,14 @@ func (t *tpmbase) eks() ([]endorsement.EK, error) {
 	return []endorsement.EK{ek}, nil
 }
 
+func (t *tpmbase) ek(cfg GetEKCertConfig) (endorsement.EK, error) {
+	return endorsement.GetCertificate(t.rwc, cfg)
+}
+
+func (t *tpmbase) persistedEKs() []EKCertTemplate {
+	return endorsement.SearchPersistedTemplates(t.rwc)
+}
+
 func (t *tpmbase) newAK(opts *AKConfig) (*AK, error) {
 	var parent ParentKeyConfig
 	if opts != nil && opts.Parent != nil {

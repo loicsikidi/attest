@@ -79,7 +79,7 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 	cert, err := ReadEKCertFromNVRAM(tpm, cfg.Template.Index)
 	if err != nil {
 		wrap := fmt.Errorf("failed to read EK certificate from NV index %X: %w", cfg.Template.Index, err)
-		return EK{}, fmt.Errorf("%v: %w", ErrEKCertNotFound, wrap)
+		return EK{}, fmt.Errorf("%w: %w", ErrEKCertNotFound, wrap)
 	}
 	ek.Certificate = cert
 
@@ -94,7 +94,7 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 	if !cfg.SkipCheck {
 		if err := ek.Check(); err != nil {
 			wrap := fmt.Errorf("EK certificate validation failed for NV index %X: %w", cfg.Template.Index, err)
-			return EK{}, fmt.Errorf("%v: %w", ErrUntrustedEK, wrap)
+			return EK{}, fmt.Errorf("%w: %w", ErrUntrustedEK, wrap)
 		}
 	}
 
