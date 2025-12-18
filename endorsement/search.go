@@ -11,7 +11,8 @@ import (
 )
 
 var (
-	ErrUntrustedEK = fmt.Errorf("untrusted endorsement key")
+	ErrUntrustedEK    = fmt.Errorf("untrusted endorsement key")
+	ErrEKCertNotFound = fmt.Errorf("endorsement certificate not found")
 )
 
 // GetCertConfig configures the behavior of [GetCertificate].
@@ -30,12 +31,6 @@ type GetCertConfig struct {
 	SkipPublicMatching bool
 	// SkipCheck skips running [EK.Check] on the certificate found.
 	SkipCheck bool
-	// Info contains TPM information used for fallback certificate URL generation.
-	//
-	// Notes:
-	//   * the field is required only if you want to populate the EK.CertificateURL field when the certificate is not present.
-	//   * this field cannot be used with SkipPublicMatching=true, as generating the certificate URL requires the EK public key.
-	Info *info.TPMInfo
 }
 
 // CheckAndSetDefault validates and sets default values for GetConfig.
@@ -49,9 +44,6 @@ func (c *GetCertConfig) CheckAndSetDefault() error {
 	if c.SkipPublicMatching {
 		// If skipping public matching, also skip check as it requires the public key.
 		c.SkipCheck = true
-	}
-	if c.Info != nil && c.SkipPublicMatching {
-		return fmt.Errorf("cannot use Info with SkipPublicMatching=true")
 	}
 	return nil
 }
@@ -86,7 +78,8 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 
 	cert, err := ReadEKCertFromNVRAM(tpm, cfg.Template.Index)
 	if err != nil {
-		return EK{}, fmt.Errorf("failed to read EK certificate from NV index %X: %w", cfg.Template.Index, err)
+		wrap := fmt.Errorf("failed to read EK certificate from NV index %X: %w", cfg.Template.Index, err)
+		return EK{}, fmt.Errorf("%v: %w", ErrEKCertNotFound, wrap)
 	}
 	ek.Certificate = cert
 
@@ -98,17 +91,10 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 		ek.Public = pub
 	}
 
-	if cfg.Info != nil {
-		pubKey, err := ek.PublicKey()
-		if err != nil {
-			return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
-		}
-		ek.CertificateURL = EkCertURL(pubKey, cfg.Info.Manufacturer.ASCII)
-	}
-
 	if !cfg.SkipCheck {
 		if err := ek.Check(); err != nil {
-			return EK{}, fmt.Errorf("%v (index %X): %w", ErrUntrustedEK, cfg.Template.Index, err)
+			wrap := fmt.Errorf("EK certificate validation failed for NV index %X: %w", cfg.Template.Index, err)
+			return EK{}, fmt.Errorf("%v: %w", ErrUntrustedEK, wrap)
 		}
 	}
 
@@ -120,7 +106,7 @@ type GetConfig struct {
 	// Template specifies which EK template to use.
 	Template Template
 	// Info contains TPM information required to produce the EK certificate URL.
-	Info *info.TPMInfo
+	Info info.TPMInfo
 }
 
 // CheckAndSetDefault validates and sets default values for GetConfig.
@@ -151,13 +137,11 @@ func Get(tpm transport.TPM, cfg GetConfig) (EK, error) {
 	}
 	ek.Public = pub
 
-	if cfg.Info != nil {
-		pubKey, err := ek.PublicKey()
-		if err != nil {
-			return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
-		}
-		ek.CertificateURL = EkCertURL(pubKey, cfg.Info.Manufacturer.ASCII)
+	pubKey, err := ek.PublicKey()
+	if err != nil {
+		return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
 	}
+	ek.CertificateURL = EkCertURL(pubKey, cfg.Info.Manufacturer.ASCII)
 
 	return ek, nil
 
@@ -233,14 +217,13 @@ func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchCertConfig) ([]E
 
 	var results []EK
 	for _, keyType := range keyTypes {
-		templates := SearchAvailableTemplates(tpm, keyType)
+		templates := SearchAvailableCertificates(tpm, keyType)
 
 		for _, template := range templates {
 			ek, err := GetCertificate(tpm, GetCertConfig{
 				Template:           template,
 				SkipPublicMatching: cfg.SkipPublicMatching,
 				SkipCheck:          cfg.SkipCheck,
-				Info:               cfg.Info,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to get certificate for template %X: %w", template.Index, err)
@@ -324,10 +307,13 @@ func isTemplateMatch(pub *tpm2.TPMTPublic, template Template) bool {
 	}
 }
 
-// SearchAvailableTemplates searches for available EK templates in the TPM's NV indexes.
-// It returns a slice of [Template] that have data stored in their corresponding NV indexes.
+// SearchAvailableCertificates searches for available EK certificates in the TPM.
 //
-// In other words, it checks which EK templates are supported by the TPM.
+// How it works? Each EK certificate is stored in a well-known NV index. The function
+// checks each known NV index for data presence.
+//
+// It returns a slice of [Template] in order to find easily the corresponding EK certificates (i.e. Index)
+// and public template (i.e., Public) to be able to recreate the EK public key if needed.
 //
 // The optional kty parameter filters results by key algorithm:
 //   - If not provided, searches all key types
@@ -336,11 +322,11 @@ func isTemplateMatch(pub *tpm2.TPMTPublic, template Template) bool {
 // Example:
 //
 //	// Search all key types
-//	templates := SearchAvailableTemplates(tpm)
+//	templates := SearchAvailableCertificates(tpm)
 //
 //	// Search only RSA keys
-//	templates := SearchAvailableTemplates(tpm, tpm2.TPMAlgRSA)
-func SearchAvailableTemplates(tpm transport.TPM, optionalKty ...tpm2.TPMAlgID) []Template {
+//	templates := SearchAvailableCertificates(tpm, tpm2.TPMAlgRSA)
+func SearchAvailableCertificates(tpm transport.TPM, optionalKty ...tpm2.TPMAlgID) []Template {
 	var results []Template
 
 	// Get optional key type filter

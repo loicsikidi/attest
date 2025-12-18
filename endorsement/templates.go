@@ -4,6 +4,9 @@ import (
 	"github.com/google/go-tpm/tpm2"
 )
 
+// Template is an helper struct which provides:
+// - the NV index pointing to the EK certificate
+// - the public area template for this EK (to recreate the EK public key if needed)
 type Template struct {
 	// Index is the NV index pointing to the EK certificate.
 	Index tpm2.TPMHandle
