@@ -30,8 +30,10 @@ const (
 
 type tpmBase interface {
 	close() error
+	ek(cfg GetEKCertConfig) (endorsement.EK, error)
 	eks() ([]endorsement.EK, error)
 	ekCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error)
+	persistedEKs() []EKCertTemplate
 	info() (*info.TPMInfo, error)
 	pcrbanks() ([]tpm2.TPMIAlgHash, error)
 	// pcrs(bank pcr.Bank) ([]pcr.PCR, error)
@@ -69,6 +71,19 @@ func (t *TPM) EKs() ([]endorsement.EK, error) {
 // It is guaranteed that each EK.Certificate field will be populated.
 func (t *TPM) EKCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error) {
 	return t.tpm.ekCertificates(optionalCfg...)
+}
+
+// EK returns a specific the endorsement key burned-in to the platform.
+// Function returns [ErrEKCertNotFound] if no EK certificate is found.
+func (t *TPM) EK(cfg GetEKCertConfig) (endorsement.EK, error) {
+	return t.tpm.ek(cfg)
+}
+
+// PersistedEKs returns the list of [EKCertTemplate] pointing to persisted EKs keys on the TPM.
+//
+// [EKCertTemplate] can be provided to [GetEKCertConfig] to retrieve specific EKs.
+func (t *TPM) PersistedEKs() []EKCertTemplate {
+	return t.tpm.persistedEKs()
 }
 
 // NewAK creates an attestation key.

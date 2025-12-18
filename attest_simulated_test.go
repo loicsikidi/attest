@@ -22,6 +22,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/asn1"
+	"errors"
 	"math/big"
 	"reflect"
 	"testing"
@@ -60,6 +61,124 @@ func TestSimEK(t *testing.T) {
 	}
 	if len(eks) == 0 || (eks[0].Public == nil) {
 		t.Errorf("EKs() = %v, want at least 1 EK with populated fields", eks)
+	}
+}
+
+func TestSimGetEK(t *testing.T) {
+	tpm := setupSimulatedTPM(t)
+	defer tpm.Close()
+
+	tests := []struct {
+		name    string
+		cfg     GetEKCertConfig
+		wantErr error
+	}{
+		{
+			name:    "RSA cert not found",
+			cfg:     GetEKCertConfig{Template: endorsement.TemplateRSA},
+			wantErr: ErrEKCertNotFound,
+		},
+		{
+			name:    "ECC cert not found",
+			cfg:     GetEKCertConfig{Template: endorsement.TemplateECC},
+			wantErr: ErrEKCertNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tpm.EK(tt.cfg)
+			if err == nil {
+				t.Fatal("EK() expected error, got nil")
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("EK() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSimPersistedEKs(t *testing.T) {
+	tpm := setupSimulatedTPM(t)
+	defer tpm.Close()
+
+	// Initially, no EKs should be persisted
+	persistedEKs := tpm.PersistedEKs()
+	if len(persistedEKs) != 0 {
+		t.Errorf("PersistedEKs() = %d, want 0 initially", len(persistedEKs))
+	}
+
+	tests := []struct {
+		name     string
+		template endorsement.Template
+		handle   tpm2.TPMHandle
+	}{
+		{
+			name:     "RSA EK",
+			template: endorsement.TemplateRSA,
+			handle:   endorsement.RSAHandle,
+		},
+		{
+			name:     "ECC EK",
+			template: endorsement.TemplateECC,
+			handle:   endorsement.ECCHandle,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create EK using CreatePrimary
+			createRsp, closer, err := tpmutil.CreatePrimaryWithResponse(tpm.tpm.(*tpmbase).rwc, tpm2.CreatePrimary{
+				PrimaryHandle: tpm2.AuthHandle{
+					Handle: tpm2.TPMRHEndorsement,
+					Auth:   tpmutil.NoAuth,
+				},
+				InPublic: tpm2.New2B(tt.template.Public),
+			})
+			if err != nil {
+				t.Fatalf("CreatePrimary failed: %v", err)
+			}
+
+			// Persist the EK to the specified handle
+			_, err = tpm2.EvictControl{
+				Auth: tpm2.TPMRHOwner,
+				ObjectHandle: &tpm2.NamedHandle{
+					Handle: createRsp.ObjectHandle,
+					Name:   createRsp.Name,
+				},
+				PersistentHandle: tt.handle,
+			}.Execute(tpm.tpm.(*tpmbase).rwc)
+			closer()
+			if err != nil {
+				t.Fatalf("EvictControl failed: %v", err)
+			}
+
+			// Verify the EK is now persisted
+			persistedEKs := tpm.PersistedEKs()
+			found := false
+			for _, tmpl := range persistedEKs {
+				if tmpl.Index == tt.template.Index && tmpl.Public.Type == tt.template.Public.Type {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("PersistedEKs() did not find persisted %s EK", tt.name)
+			}
+
+			// Clean up: evict the persisted handle
+			_, err = tpm2.EvictControl{
+				Auth: tpm2.TPMRHOwner,
+				ObjectHandle: &tpm2.NamedHandle{
+					Handle: tt.handle,
+					Name:   tpm2.TPM2BName{Buffer: []byte{}},
+				},
+				PersistentHandle: tt.handle,
+			}.Execute(tpm.tpm.(*tpmbase).rwc)
+			if err != nil {
+				t.Logf("Warning: failed to clean up persisted handle: %v", err)
+			}
+		})
 	}
 }
 
