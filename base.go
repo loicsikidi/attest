@@ -87,7 +87,7 @@ func (t *tpmbase) eks() ([]endorsement.EK, error) {
 
 	// Attempt to create a raw RSA EK, as no EK certs were found.
 	ek, err := endorsement.Get(t.rwc, endorsement.GetConfig{
-		Info:     t.cacheInfo,
+		Info:     *t.cacheInfo,
 		Template: endorsement.TemplateRSA,
 	})
 	if err != nil {

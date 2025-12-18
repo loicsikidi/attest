@@ -88,9 +88,22 @@ func OpenTPM(config *OpenConfig) (*TPM, error) {
 		}
 		return nil, ErrTPMNotAvailable
 	}
-	return &TPM{tpm: &tpmbase{
-		rwc: config.Transport,
-	}}, nil
+	tpm := &tpmbase{rwc: config.Transport}
+	if err := probeTpm(tpm); err != nil {
+		return nil, err
+	}
+	return &TPM{tpm: tpm}, nil
+}
+
+// probeTpm performs initial probing of the TPM to ensure we have a valid connection.
+func probeTpm(base tpmBase) error {
+	// behind the scenes, this also caches the TPM info for later use
+	_, err := base.info()
+	if err != nil {
+		base.close() // nolint:errcheck
+		return fmt.Errorf("failed to probe TPM at startup: %w", err)
+	}
+	return nil
 }
 
 // ParentKeyConfig describes the Storage Root Key that is used

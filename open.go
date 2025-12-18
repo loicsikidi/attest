@@ -16,7 +16,6 @@
 package attest
 
 import (
-	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -68,11 +67,8 @@ func openTPM(tpmPath string) (*TPM, error) {
 	}
 
 	base := &tpmbase{rwc: rwc}
-	// probe TPM info to ensure we have a valid TPM connection ahead of time
-	_, err = base.info() // info internally cached after first call
-	if err != nil {
-		rwc.Close()
-		return nil, fmt.Errorf("failed to probe TPM at startup: %w", err)
+	if err := probeTpm(base); err != nil {
+		return nil, err
 	}
 	return &TPM{tpm: base}, nil
 }
