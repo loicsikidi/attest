@@ -1,24 +1,36 @@
 ## Overview
 
-This directory is a fork of `attest` package from the famous [go-attestation](https://github.com/google/go-attestation) repo from Google.
+> [!NOTE]
+> First and foremost, thanks for the original work done by Google  (and the community) in the original repo! It's a gem for interacting with TPMs and it brings a good level of abstraction.
+
+This repo is a fork of `attest` package from the famous [go-attestation](https://github.com/google/go-attestation) repo from Google.
+
+> [!WARNING]
+> The API is in beta and may change without announcement.
 
 ## Why a fork?
 
-Because I needed to make some changes to the original code to fit my specific use cases. I've made sure to keep the core functionality intact while adding my own enhancements and modifications.
+Because I needed to make some changes to the original code to fit my specific use cases and requirements. I've tried to keep the core functionality intact while adding my own enhancements and modifications.
 
 Improvements over the original repo:
  * Migrate from `go-tpm/lecacy/tpm2` to `go-tpm/tpm2` in order to use "TPMDirect" API **ONLY**
  * Add support for ECC attestation keys
-   * *Note: ECC support is now available in the original repo as well, but it wasn't the case when I started working on it.*
+   * *Note: ECC support is now available in the upstream repo as well, but it wasn't the case when I started working on it.*
  * Refactor the code to make it more modular (e.g. `algorithm`, `capabilities`, `manufacturer`, etc. sub-packages)
  * Enrich `TPMInfo` struct with more fields (e.g. `Manufacturer`, `Model`, `FirmwareVersion`, etc.)
 
 > [!WARNING]
 > **Breaking change**
-> - drop support for Windows devices (it could be added back in the future if needed)
+> - drop support for Windows devices (it could be added back in the future if I need it) because I don't have access to Windows devices with TPMs for testing.
 
-Future improvements:
- * Support permission to use TPM's keys (e.g. using passwords or enhanced authorization policies)
+### Sync with upstream
+
+I regularly review each merge from the upstream repo and I will sync the changes ***ONLY*** if I find them useful for my use cases.
+
+## Roadmap
+
+- [ ] Support permission to use TPM's keys (e.g. using passwords or enhanced authorization policies)
+- [ ] Use audit sessions for certain operations (e.g. `ActivateCredential`)
 
 ## Acknowledgements
 
@@ -30,9 +42,9 @@ Make sure to check out the original work!
 
 ## Should You Use This?
 
-Probably not. This fork is tailored to my specific needs and may not be suitable for general use. If you're looking for a TPM attestation library, I recommend using the original [go-attestation](https://github.com/google/go-attestation).
+**Probably not**. This fork is tailored to my specific needs and may not be suitable for general use. If you're looking for a TPM attestation library, I recommend using the original [go-attestation](https://github.com/google/go-attestation).
 
---- 
+---
 
 > [!NOTE]
 > Find the original README below.
