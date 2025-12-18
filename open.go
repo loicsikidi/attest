@@ -12,10 +12,11 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-// This has been renamed from tpm_linux.go to open.go and modified by lsikidi.
+// This file has been renamed from tpm_linux.go to open.go and modified by lsikidi.
 package attest
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -66,7 +67,12 @@ func openTPM(tpmPath string) (*TPM, error) {
 		return nil, err
 	}
 
-	return &TPM{tpm: &tpmbase{
-		rwc: rwc,
-	}}, nil
+	base := &tpmbase{rwc: rwc}
+	// probe TPM info to ensure we have a valid TPM connection ahead of time
+	_, err = base.info() // info internally cached after first call
+	if err != nil {
+		rwc.Close()
+		return nil, fmt.Errorf("failed to probe TPM at startup: %w", err)
+	}
+	return &TPM{tpm: base}, nil
 }

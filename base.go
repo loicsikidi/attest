@@ -1,9 +1,22 @@
-// this file implements tpmbase interface, which is used by the public TPM struct.
+// Copyright 2020 Google Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not
+// use this file except in compliance with the License. You may obtain a copy of
+// the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+// WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+// License for the specific language governing permissions and limitations under
+// the License.
+
+// This file has been renamed from wrapped_tpm20.go to base.go and modified by lsikidi.
 package attest
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -17,22 +30,18 @@ import (
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
+	"github.com/loicsikidi/attest/internal/utils"
 	pkgslices "github.com/loicsikidi/attest/internal/utils/slices"
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 )
 
-var templateByNVIndex = map[tpm2.TPMHandle]tpm2.TPMTPublic{
-	endorsement.RSACertIndex: akTemplateRSA,
-	endorsement.ECCCertIndex: akTemplateECC,
-}
-
 type tpmbase struct {
-	rwc              transport.TPMCloser
-	infoCache        *info.TPMInfo
-	tpmRSAEkTemplate *tpm2.TPMTPublic
-	tpmECCEkTemplate *tpm2.TPMTPublic
+	rwc transport.TPMCloser
+	// cacheInfo caches the TPMInfo at startup.
+	// Use this cache only for immutable TPM properties (e.g., PCR banks, Manufacturer, etc.).
+	cacheInfo *info.TPMInfo
 }
 
 // certifyingKey contains details of a TPM key that could certify other keys.
@@ -41,100 +50,50 @@ type certifyingKey struct {
 	keyType kty.KeyType
 }
 
-func (t *tpmbase) rsaEkTemplate() tpm2.TPMTPublic {
-	if t.tpmRSAEkTemplate != nil {
-		return *t.tpmRSAEkTemplate
-	}
-	// TODO(lsikidi): Check EK Nonce existance from NVRAM
-	t.tpmRSAEkTemplate = &defaultRSAEKTemplate
-	return *t.tpmRSAEkTemplate
-}
-
-func (t *tpmbase) eccEkTemplate() tpm2.TPMTPublic {
-	if t.tpmECCEkTemplate != nil {
-		return *t.tpmECCEkTemplate
-	}
-
-	// TODO(lsikidi): Check EK Nonce existance from NVRAM
-	t.tpmECCEkTemplate = &defaultECCEKTemplate
-	return *t.tpmECCEkTemplate
-}
-
 func (t *tpmbase) close() error {
 	return t.rwc.Close()
 }
 
 // Info returns information about the TPM.
 func (t *tpmbase) info() (*info.TPMInfo, error) {
-	if t.infoCache != nil {
-		return t.infoCache, nil
+	if t.cacheInfo != nil {
+		return t.cacheInfo, nil
 	}
 
 	info, err := info.Get(t.rwc)
 	if err != nil {
 		return nil, err
 	}
-	t.infoCache = info // store in cache
-	return t.infoCache, nil
+	t.cacheInfo = info // store in cache
+	return t.cacheInfo, nil
 }
 
-func (t *tpmbase) ekCertificates() ([]endorsement.EK, error) {
-	var res []endorsement.EK
-	if rsaCert, err := endorsement.ReadEKCertFromNVRAM(t.rwc, endorsement.RSACertIndex); err == nil {
-		pub, err := t.getEKPublicParamsFromNvram(endorsement.RSACertIndex)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get EK public params from NVRAM: %w", err)
-		}
-		res = append(res, endorsement.EK{Public: pub, Certificate: rsaCert})
+func (t *tpmbase) ekCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error) {
+	cfg, _ := utils.OptionalArg(optionalCfg)
+	if cfg.Info == nil {
+		cfg.Info = t.cacheInfo
 	}
-	if eccCert, err := endorsement.ReadEKCertFromNVRAM(t.rwc, endorsement.ECCCertIndex); err == nil {
-		pub, err := t.getEKPublicParamsFromNvram(endorsement.ECCCertIndex)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get EK public params from NVRAM: %w", err)
-		}
-		res = append(res, endorsement.EK{Public: pub, Certificate: eccCert})
-	}
-	return res, nil
+	return endorsement.SearchCertificates(t.rwc, cfg)
 }
 
 func (t *tpmbase) eks() ([]endorsement.EK, error) {
-	if cert, err := endorsement.ReadEKCertFromNVRAM(t.rwc, endorsement.RSACertIndex); err == nil {
-		pub, err := t.getEKPublicParamsFromNvram(endorsement.RSACertIndex)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get EK public params from NVRAM: %w", err)
-		}
-		return []endorsement.EK{
-			{Public: pub, Certificate: cert},
-		}, nil
-	}
-
-	// Attempt to create an EK.
-	pub, err := t.getEKPublicParams(t.rsaEkTemplate())
+	certs, err := t.ekCertificates()
 	if err != nil {
 		return nil, err
 	}
-
-	if pub.Type != tpm2.TPMAlgRSA {
-		return nil, errors.New("ECC EK not yet supported")
+	if len(certs) > 0 {
+		return certs, nil
 	}
 
-	ekPub, err := tpmcrypto.PublicKey(pub)
+	// Attempt to create a raw RSA EK, as no EK certs were found.
+	ek, err := endorsement.Get(t.rwc, endorsement.GetConfig{
+		Info:     t.cacheInfo,
+		Template: endorsement.TemplateRSA,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to access EK' public key: %w", err)
+		return nil, fmt.Errorf("creating raw RSA EK failed: %w", err)
 	}
-
-	info, err := t.info()
-	if err != nil {
-		return nil, fmt.Errorf("retrieving TPM info failed: %w", err)
-	}
-
-	certificateURL := endorsement.EkCertURL(ekPub, info.Manufacturer.ASCII)
-	return []endorsement.EK{
-		{
-			Public:         pub,
-			CertificateURL: certificateURL,
-		},
-	}, nil
+	return []endorsement.EK{ek}, nil
 }
 
 func (t *tpmbase) newAK(opts *AKConfig) (*AK, error) {
@@ -276,6 +235,7 @@ func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (handle, error
 	return handle, nil
 }
 
+// TODO(lsikidi): add this function in tpmutil
 func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handle, error) {
 	var (
 		ekHandle   tpm2.TPMHandle
@@ -284,16 +244,18 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handl
 	// The default is RSA for backward compatibility.
 	if endorsementKey == nil {
 		ekHandle = endorsement.RSAHandle
-		ekTemplate = t.rsaEkTemplate()
+		ekTemplate = endorsement.RSAEKTemplate
 	} else {
-		switch endorsementKey.Public.Type {
-		case tpm2.TPMAlgRSA:
-			ekTemplate = t.rsaEkTemplate()
-			ekHandle = endorsement.RSAHandle
-		case tpm2.TPMAlgECC:
-			ekTemplate = t.eccEkTemplate()
-			ekHandle = endorsement.ECCHandle
-		default:
+		// TODO(lsikidi): why not use endorsementKey.Public directly?
+		ekTpl, err := endorsement.GetTemplate(endorsementKey.Public)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get EK template: %w", err)
+		}
+		ekTemplate = ekTpl.Public
+
+		var ok bool
+		ekHandle, ok = endorsement.HandleByType[endorsementKey.Public.Type]
+		if !ok {
 			return nil, fmt.Errorf("unsupported public key type %#x", endorsementKey.Public.Type)
 		}
 	}
@@ -316,7 +278,7 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handl
 	if err != nil {
 		return tpm2.NamedHandle{}, fmt.Errorf("ReadPublic failed (%v), and then CreatePrimary failed: %v", rerr, err)
 	}
-	defer closer() //nolint:errcheck // ignore error on close
+	defer closer() //nolint:errcheck
 
 	handle := &tpm2.NamedHandle{
 		Handle: ekCreateRsp.ObjectHandle,
@@ -335,28 +297,6 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handl
 	handle.Handle = ekHandle // Update the handle to the persistent handle.
 
 	return handle, nil
-}
-
-func (t *tpmbase) getEKPublicParamsFromNvram(index tpm2.TPMHandle) (*tpm2.TPMTPublic, error) {
-	template, ok := templateByNVIndex[index]
-	if !ok {
-		return nil, fmt.Errorf("no EK template for NV index %#x", index)
-	}
-	return t.getEKPublicParams(template)
-}
-
-func (t *tpmbase) getEKPublicParams(template tpm2.TPMTPublic) (*tpm2.TPMTPublic, error) {
-	ekCreate := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHEndorsement,
-		InPublic:      tpm2.New2B(template),
-	}
-	ekCreateRsp, closer, err := tpmutil.CreatePrimaryWithResponse(t.rwc, ekCreate)
-	if err != nil {
-		return nil, fmt.Errorf("EK CreatePrimary failed: %w", err)
-	}
-	defer closer() //nolint:errcheck // ignore error on close
-
-	return ekCreateRsp.OutPublic.Contents()
 }
 
 func (t *tpmbase) deserializeAndLoad(opaqueBlob []byte, parent ParentKeyConfig) (tpmutil.HandleCloser, *storage.SerializedKey, error) {
@@ -412,11 +352,7 @@ func (t *tpmbase) loadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*
 }
 
 func (t *tpmbase) pcrbanks() ([]tpm2.TPMIAlgHash, error) {
-	info, err := t.info()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get TPM info: %w", err)
-	}
-	return pkgslices.Convert(info.PcrBanks, func(p pcr.Bank) tpm2.TPMIAlgHash { return tpm2.TPMIAlgHash(p.Alg) }), nil
+	return pkgslices.Convert(t.cacheInfo.PcrBanks, func(p pcr.Bank) tpm2.TPMIAlgHash { return tpm2.TPMIAlgHash(p.Alg) }), nil
 }
 
 func (t *tpmbase) newKey(ak *AK, opts *KeyConfig) (*Key, error) {
