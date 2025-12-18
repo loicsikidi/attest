@@ -28,49 +28,63 @@ func (t Template) Type() tpm2.TPMAlgID {
 	return t.Public.Type
 }
 
+// Predefined EK templates.
+var (
+	TemplateRSA = Template{
+		Index:  RSACertIndex,
+		Public: RSAEKTemplate,
+	}
+	TemplateECC = Template{
+		Index:  ECCCertIndex,
+		Public: ECCEKTemplate,
+	}
+	TemplateRSA2048 = Template{
+		Index:  RSA2048CertIndex,
+		Public: RSA2048EKTemplate,
+	}
+	TemplateECCP256 = Template{
+		Index:  ECCP256CertIndex,
+		Public: ECCP256EKTemplate,
+	}
+	TemplateECCP384 = Template{
+		Index:  ECCP384CertIndex,
+		Public: ECCP384EKTemplate,
+	}
+	TemplateECCP521 = Template{
+		Index:  ECCP521CertIndex,
+		Public: ECCP521EKTemplate,
+	}
+	TemplateECCSM2P256 = Template{
+		Index:  ECCSM2P256CertIndex,
+		Public: ECCSM2P256EKTemplate,
+	}
+	TemplateRSA3072 = Template{
+		Index:  RSA3072CertIndex,
+		Public: RSA3072EKTemplate,
+	}
+	TemplateRSA4096 = Template{
+		Index:  RSA4096CertIndex,
+		Public: RSA4096EKTemplate,
+	}
+)
+
 var TemplatesByType = map[tpm2.TPMAlgID][]Template{
 	tpm2.TPMAlgRSA: {
-		{
-			Index:  RSACertIndex,
-			Public: RSAEKTemplate,
-		},
-		{
-			Index:  RSA2048CertIndex,
-			Public: RSA2048EKTemplate,
-		},
-		{
-			Index:  RSA3072CertIndex,
-			Public: RSA3072EKTemplate,
-		},
-		{
-			Index:  RSA4096CertIndex,
-			Public: RSA4096EKTemplate,
-		},
+		TemplateRSA,
+		TemplateRSA2048,
+		TemplateRSA3072,
+		TemplateRSA4096,
 	},
 	tpm2.TPMAlgECC: {
-		{
-			Index:  ECCCertIndex,
-			Public: ECCEKTemplate,
-		},
-		{
-			Index:  ECCP256CertIndex,
-			Public: ECCP256EKTemplate,
-		},
-		{
-			Index:  ECCP384CertIndex,
-			Public: ECCP384EKTemplate,
-		},
-		{
-			Index:  ECCP521CertIndex,
-			Public: ECCP521EKTemplate,
-		},
-		{
-			Index:  ECCSM2P256CertIndex,
-			Public: ECCSM2P256EKTemplate,
-		},
+		TemplateECC,
+		TemplateECCP256,
+		TemplateECCP384,
+		TemplateECCP521,
+		TemplateECCSM2P256,
 	},
 }
 
+// NV Indices for EK Certificates as per TCG EK Credential Profile v2.6
 var (
 	// Low-Range RSA 2048
 	// Source: TCG EK Credential Profile, v2.6, section 2.2.2.4
@@ -101,6 +115,7 @@ var (
 	RSA4096CertIndex tpm2.TPMHandle = 0x01C0001E
 )
 
+// Predefined EK templates (public area).
 var (
 	// Low-Range RSA 2048 EK template (storage)
 	// Source: TCG EK Credential Profile, v2.6, section B.3.3

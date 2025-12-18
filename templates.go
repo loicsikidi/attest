@@ -84,10 +84,6 @@ var (
 	// ECCSRKTemplate contains the TCG reference ECC-P256 SRK template.
 	// https://trustedcomputinggroup.org/wp-content/uploads/TCG-TPM-v2.0-Provisioning-Guidance-Published-v1r1.pdf
 	defaultECCSRKTemplate = tpm2.ECCSRKTemplate
-	// RSAEKTemplate contains the TCG reference RSA-2048 EK template.
-	defaultRSAEKTemplate = tpm2.RSAEKTemplate
-	// ECCEKTemplate contains the TCG reference ECC-P256 EK template.
-	defaultECCEKTemplate = tpm2.ECCEKTemplate
 	// Basic template for an ECDSA key signing outside-TPM objects. Other
 	// fields (NameAlg and Parameters) are populated depending on the key creation options.
 	ecdsaKeyTemplate = tpm2.TPMTPublic{

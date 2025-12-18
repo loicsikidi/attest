@@ -12,7 +12,7 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-// This has been modified by lsikidi.
+// This file has been modified by lsikidi.
 package attest
 
 import (
@@ -31,7 +31,7 @@ const (
 type tpmBase interface {
 	close() error
 	eks() ([]endorsement.EK, error)
-	ekCertificates() ([]endorsement.EK, error)
+	ekCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error)
 	info() (*info.TPMInfo, error)
 	pcrbanks() ([]tpm2.TPMIAlgHash, error)
 	// pcrs(bank pcr.Bank) ([]pcr.PCR, error)
@@ -57,18 +57,18 @@ func (t *TPM) Close() error {
 }
 
 // EKs returns the endorsement keys burned-in to the platform.
-// Note for Linux clients: for historical reasons, the method assumes that
-// the TPM has a single EK, and the EK's type is RSA. If the EK's type is ECC
-// and the TPM contains an ECC EK Certificate, the EKCertificates() method
-// should be used to retrieve the EKs.
+// If no certificates are found, the function will fall back
+// to RSA 2048 (low-range) EK without certificate.
+//
+// Note: for the moment, we keep upstream behavior
 func (t *TPM) EKs() ([]endorsement.EK, error) {
 	return t.tpm.eks()
 }
 
 // EKCertificates returns the endorsement key certificates burned-in to the platform.
 // It is guaranteed that each EK.Certificate field will be populated.
-func (t *TPM) EKCertificates() ([]endorsement.EK, error) {
-	return t.tpm.ekCertificates()
+func (t *TPM) EKCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error) {
+	return t.tpm.ekCertificates(optionalCfg...)
 }
 
 // NewAK creates an attestation key.

@@ -14,8 +14,8 @@ var (
 	ErrUntrustedEK = fmt.Errorf("untrusted endorsement key")
 )
 
-// GetConfig configures the behavior of [GetCertificate].
-type GetConfig struct {
+// GetCertConfig configures the behavior of [GetCertificate].
+type GetCertConfig struct {
 	// Template specifies which EK template to use.
 	Template Template
 	// SkipPublicMatching skips generating the EK public key from the template.
@@ -39,7 +39,7 @@ type GetConfig struct {
 }
 
 // CheckAndSetDefault validates and sets default values for GetConfig.
-func (c *GetConfig) CheckAndSetDefault() error {
+func (c *GetCertConfig) CheckAndSetDefault() error {
 	if c.Template.Index == 0 {
 		return fmt.Errorf("template index cannot be 0")
 	}
@@ -77,9 +77,9 @@ func (c *GetConfig) CheckAndSetDefault() error {
 //		},
 //		SkipCheck: true,
 //	})
-func GetCertificate(tpm transport.TPM, cfg GetConfig) (EK, error) {
+func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 	if err := cfg.CheckAndSetDefault(); err != nil {
-		return EK{}, fmt.Errorf("invalid GetConfig: %w", err)
+		return EK{}, fmt.Errorf("invalid GetCertConfig: %w", err)
 	}
 
 	ek := EK{}
@@ -115,8 +115,56 @@ func GetCertificate(tpm transport.TPM, cfg GetConfig) (EK, error) {
 	return ek, nil
 }
 
-// SearchConfig configures the behavior of [SearchCertificates].
-type SearchConfig struct {
+// GetConfig configures the behavior of [Get].
+type GetConfig struct {
+	// Template specifies which EK template to use.
+	Template Template
+	// Info contains TPM information required to produce the EK certificate URL.
+	Info *info.TPMInfo
+}
+
+// CheckAndSetDefault validates and sets default values for GetConfig.
+func (c *GetConfig) CheckAndSetDefault() error {
+	if c.Template.Index == 0 {
+		return fmt.Errorf("template index cannot be 0")
+	}
+	if c.Template.Public.Type == tpm2.TPMAlgNull {
+		return fmt.Errorf("template public type cannot be TPMAlgNull")
+	}
+	return nil
+}
+
+// Get retrieves the endorsement key from the TPM based on the provided template.
+//
+// Note: this function does NOT attempt to read the EK certificate from NVRAM.
+// Use it ONLY if you need to create an EK structure without certificate.
+func Get(tpm transport.TPM, cfg GetConfig) (EK, error) {
+	if err := cfg.CheckAndSetDefault(); err != nil {
+		return EK{}, fmt.Errorf("invalid GetConfig: %w", err)
+	}
+
+	ek := EK{}
+
+	pub, err := getOrCreateEKPublic(tpm, cfg.Template.Public.Type, cfg.Template)
+	if err != nil {
+		return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
+	}
+	ek.Public = pub
+
+	if cfg.Info != nil {
+		pubKey, err := ek.PublicKey()
+		if err != nil {
+			return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
+		}
+		ek.CertificateURL = EkCertURL(pubKey, cfg.Info.Manufacturer.ASCII)
+	}
+
+	return ek, nil
+
+}
+
+// SearchCertConfig configures the behavior of [SearchCertificates].
+type SearchCertConfig struct {
 	// KeyType filters search by algorithm type. If 0, searches all key types.
 	KeyType tpm2.TPMAlgID
 	// SkipPublicMatching skips generating the EK public key from the template.
@@ -140,7 +188,7 @@ type SearchConfig struct {
 }
 
 // CheckAndSetDefault validates and sets default values for SearchConfig.
-func (c *SearchConfig) CheckAndSetDefault() error {
+func (c *SearchCertConfig) CheckAndSetDefault() error {
 	if c.KeyType != 0 && c.KeyType != tpm2.TPMAlgRSA && c.KeyType != tpm2.TPMAlgECC {
 		return fmt.Errorf("unsupported key type: %X", c.KeyType)
 	}
@@ -167,10 +215,10 @@ func (c *SearchConfig) CheckAndSetDefault() error {
 //		KeyType: tpm2.TPMAlgRSA,
 //		SkipCheck: true,
 //	})
-func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchConfig) ([]EK, error) {
+func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchCertConfig) ([]EK, error) {
 	cfg, err := utils.OptionalArg(optionalCfg)
 	if err != nil {
-		cfg = SearchConfig{}
+		cfg = SearchCertConfig{}
 	}
 	if err := cfg.CheckAndSetDefault(); err != nil {
 		return nil, err
@@ -188,7 +236,7 @@ func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchConfig) ([]EK, e
 		templates := SearchAvailableTemplates(tpm, keyType)
 
 		for _, template := range templates {
-			ek, err := GetCertificate(tpm, GetConfig{
+			ek, err := GetCertificate(tpm, GetCertConfig{
 				Template:           template,
 				SkipPublicMatching: cfg.SkipPublicMatching,
 				SkipCheck:          cfg.SkipCheck,
@@ -215,7 +263,7 @@ func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template
 		}.Execute(tpm)
 		if err == nil {
 			pub, err := rsp.OutPublic.Contents()
-			if err == nil && matchesTemplate(pub, template) {
+			if err == nil && isTemplateMatch(pub, template) {
 				return pub, nil
 			}
 		}
@@ -242,8 +290,8 @@ func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template
 	return pub, nil
 }
 
-// matchesTemplate verifies that the public key matches the expected template.
-func matchesTemplate(pub *tpm2.TPMTPublic, template Template) bool {
+// isTemplateMatch verifies that the public key matches the expected template.
+func isTemplateMatch(pub *tpm2.TPMTPublic, template Template) bool {
 	if pub.Type != template.Public.Type {
 		return false
 	}
@@ -348,11 +396,35 @@ func SearchPersistedTemplates(tpm transport.TPM) []Template {
 			continue
 		}
 		for _, template := range TemplatesByType[pub.Type] {
-			if matchesTemplate(pub, template) {
+			if isTemplateMatch(pub, template) {
 				results = append(results, template)
 				break
 			}
 		}
 	}
 	return results
+}
+
+// GetTemplate retrieves the EK template matching the provided public key.
+// It returns an error if no matching template is found.
+//
+// Example:
+//
+//	template, err := GetTemplate(ek.Public)
+//	if err != nil {
+//		// handle error
+//	}
+//
+// EXPERIMENTAL: this function may be changed or removed in future releases.
+func GetTemplate(pub *tpm2.TPMTPublic) (*Template, error) {
+	templates, ok := TemplatesByType[pub.Type]
+	if !ok {
+		return nil, fmt.Errorf("unsupported public key type: %X", pub.Type)
+	}
+	for _, template := range templates {
+		if isTemplateMatch(pub, template) {
+			return &template, nil
+		}
+	}
+	return nil, fmt.Errorf("no matching template found for public key")
 }
