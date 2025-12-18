@@ -8,7 +8,7 @@
     "https://github.com/loicsikidi/nix-shell-toolbox/tarball/main") {
     inherit pkgs;
     hooksConfig = {
-      gotest.settings.flags = "-short -race";
+      gotest.settings.flags = "-race";
     };
   };
 in
