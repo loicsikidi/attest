@@ -50,6 +50,10 @@ type certifyingKey struct {
 	keyType kty.KeyType
 }
 
+func (t *tpmbase) tpm() transport.TPM {
+	return t.rwc
+}
+
 func (t *tpmbase) close() error {
 	return t.rwc.Close()
 }

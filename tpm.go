@@ -22,6 +22,7 @@ import (
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 )
 
 type tpmBase interface {
+	tpm() transport.TPM
 	close() error
 	ek(cfg GetEKCertConfig) (endorsement.EK, error)
 	eks() ([]endorsement.EK, error)
@@ -51,6 +53,12 @@ type tpmBase interface {
 // TPM struct with a TPM device on the system.
 type TPM struct {
 	tpm tpmBase
+}
+
+// Tpm returns the underlying transport.TPM interface.
+// allow other packages to use the same TPM connection.
+func (t *TPM) Tpm() transport.TPM {
+	return t.tpm.tpm()
 }
 
 // Close shuts down the connection to the TPM.
