@@ -136,7 +136,7 @@ func (k *wrappedKey) signMsg(tb tpmBase, msg []byte, pub crypto.PublicKey, opts 
 	if !ok {
 		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
 	}
-	cfg := &tpmutil.HashConfig{
+	cfg := tpmutil.HashConfig{
 		Hierarchy: tpm2.TPMRHOwner,
 		HashAlg:   opts.HashFunc(),
 		Data:      msg,
@@ -158,7 +158,7 @@ func (k *wrappedKey) signWithValidation(tb tpmBase, digest []byte, pub crypto.Pu
 	if !ok {
 		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
 	}
-	cfg := &tpmutil.SignConfig{
+	cfg := tpmutil.SignConfig{
 		KeyHandle:  k.hnd,
 		PublicKey:  pub,
 		Validation: validation,

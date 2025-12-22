@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"sync"
 
 	tpmcrypto "github.com/loicsikidi/go-tpm-kit/tpmcrypto"
@@ -204,9 +203,7 @@ func GetSupportedKeyTypesAsync(t transport.TPM) ([]KeyType, error) {
 	if err := <-errCh; err != nil {
 		return nil, err
 	}
-	sort.Slice(supported, func(i, j int) bool {
-		return supported[i] < supported[j]
-	})
+	slices.Sort(supported)
 	return supported, nil
 }
 

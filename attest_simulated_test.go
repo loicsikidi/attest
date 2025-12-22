@@ -128,12 +128,10 @@ func TestSimPersistedEKs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create EK using CreatePrimary
-			createRsp, closer, err := tpmutil.CreatePrimaryWithResponse(tpm.tpm.(*tpmbase).rwc, tpm2.CreatePrimary{
-				PrimaryHandle: tpm2.AuthHandle{
-					Handle: tpm2.TPMRHEndorsement,
-					Auth:   tpmutil.NoAuth,
-				},
-				InPublic: tpm2.New2B(tt.template.Public),
+			createRsp, closer, err := tpmutil.CreatePrimaryWithResponse(tpm.tpm.(*tpmbase).rwc, tpmutil.CreatePrimaryConfig{
+				PrimaryHandle: tpm2.TPMRHEndorsement,
+				Template:      tt.template.Public,
+				Auth:          tpmutil.NoAuth,
 			})
 			if err != nil {
 				t.Fatalf("CreatePrimary failed: %v", err)
