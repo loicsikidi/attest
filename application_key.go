@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/loicsikidi/attest/internal/utils"
 	"github.com/loicsikidi/attest/kty"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
@@ -77,9 +78,14 @@ type KeyConfig struct {
 	QualifyingData []byte
 }
 
-// defaultConfig is used when no other configuration is specified.
-var defaultConfig = &KeyConfig{
-	KeyType: kty.ECC_P256,
+func (c *KeyConfig) CheckAndSetDefaults() error {
+	if c.KeyType == kty.UnspecifiedSignAlgorithm {
+		c.KeyType = kty.ECC_P256
+	}
+	if c.Parent == nil {
+		c.Parent = &defaultParentConfig
+	}
+	return nil
 }
 
 // Public returns the public key corresponding to the private key.
@@ -129,7 +135,11 @@ func (k *Key) Blobs() (pub, priv []byte, err error) {
 	return k.key.blobs()
 }
 
-func templateFromConfig(opts *KeyConfig) (tpm2.TPMTPublic, error) {
+func templateFromConfig(optionalCfg ...KeyConfig) (tpm2.TPMTPublic, error) {
+	opts, _ := utils.OptionalArg(optionalCfg)
+	if err := opts.CheckAndSetDefaults(); err != nil {
+		return tpm2.TPMTPublic{}, err
+	}
 	var tmpl tpm2.TPMTPublic
 	switch opts.KeyType.Kind() {
 	case tpm2.TPMAlgRSA:

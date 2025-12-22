@@ -44,7 +44,7 @@ func setupSimulatedTPM(t *testing.T) *TPM {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attestTPM, err := OpenTPM(&OpenConfig{Transport: tpm})
+	attestTPM, err := OpenTPM(OpenConfig{Transport: tpm})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestSimAKCreateAndLoad(t *testing.T) {
 	defer tpm.Close()
 	for _, test := range []struct {
 		name string
-		opts *AKConfig
+		opts []AKConfig
 	}{
 		{
 			name: "NoConfig",
@@ -202,19 +202,19 @@ func TestSimAKCreateAndLoad(t *testing.T) {
 		},
 		{
 			name: "EmptyConfig",
-			opts: &AKConfig{},
+			opts: []AKConfig{},
 		},
 		{
 			name: "RSA",
-			opts: &AKConfig{Algorithm: algorithm.RSA},
+			opts: []AKConfig{{Algorithm: algorithm.RSA}},
 		},
 		{
 			name: "ECDSA",
-			opts: &AKConfig{Algorithm: algorithm.ECDSA},
+			opts: []AKConfig{{Algorithm: algorithm.ECDSA}},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ak, err := tpm.NewAK(test.opts)
+			ak, err := tpm.NewAK(test.opts...)
 			if err != nil {
 				t.Fatalf("NewAK() failed: %v", err)
 			}
@@ -264,7 +264,7 @@ func testActivateCredential(t *testing.T, useEK bool) {
 	}
 	ek := EKs[0]
 
-	ak, err := tpm.NewAK(nil)
+	ak, err := tpm.NewAK()
 	if err != nil {
 		t.Fatalf("NewAK() failed: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestParseAKPublic(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
 	defer tpm.Close()
 
-	ak, err := tpm.NewAK(nil)
+	ak, err := tpm.NewAK()
 	if err != nil {
 		t.Fatalf("NewAK() failed: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestSignMsg(t *testing.T) {
 	defer tpm.Close()
 
 	type args struct {
-		cfg  *AKConfig
+		cfg  []AKConfig
 		opts crypto.SignerOpts
 	}
 	tests := []struct {
@@ -496,14 +496,14 @@ func TestSignMsg(t *testing.T) {
 		args args
 	}{
 		{"no config", args{nil, crypto.SHA256}},
-		{"rsa 2048", args{&AKConfig{Algorithm: algorithm.RSA}, crypto.SHA256}},
-		// {"rsa 2048 PSS", args{&AKConfig{Algorithm: algorithm.RSA}, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: crypto.SHA256}}},
-		{"ecc P256", args{&AKConfig{Algorithm: algorithm.ECC}, crypto.SHA256}},
+		{"rsa 2048", args{[]AKConfig{{Algorithm: algorithm.RSA}}, crypto.SHA256}},
+		// {"rsa 2048 PSS", args{[]AKConfig{{Algorithm: algorithm.RSA}}, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: crypto.SHA256}}},
+		{"ecc P256", args{[]AKConfig{{Algorithm: algorithm.ECC}}, crypto.SHA256}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ak, err := tpm.NewAK(tt.args.cfg)
+			ak, err := tpm.NewAK(tt.args.cfg...)
 			if err != nil {
 				t.Fatalf("NewAK() failed: %v", err)
 			}
@@ -524,7 +524,7 @@ func TestSignMsg(t *testing.T) {
 
 			alg := algorithm.RSA // Default to RSA if no config is provided.
 			if tt.args.cfg != nil {
-				alg = tt.args.cfg.Algorithm
+				alg = tt.args.cfg[0].Algorithm
 			}
 			verify(t, hashed, sig, ak.Public(), alg)
 		})
@@ -610,7 +610,7 @@ func TestSimQuote(t *testing.T) {
 		{Index: 15, DigestAlg: crypto.SHA256, Digest: readPCR(t, tpm.tpm.(*tpmbase).rwc, 15)},
 		{Index: int(debugPCR), DigestAlg: crypto.SHA256, Digest: debugDigest},
 	}
-	ak, err := tpm.NewAK(nil)
+	ak, err := tpm.NewAK()
 	if err != nil {
 		t.Fatalf("NewAK() failed: %v", err)
 	}

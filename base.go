@@ -108,21 +108,19 @@ func (t *tpmbase) persistedEKs() []EKCertTemplate {
 	return endorsement.SearchPersistedTemplates(t.rwc)
 }
 
-func (t *tpmbase) newAK(opts *AKConfig) (*AK, error) {
-	var parent ParentKeyConfig
-	if opts != nil && opts.Parent != nil {
-		parent = *opts.Parent
-	} else {
-		parent = defaultParentConfig
+func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
+	opts, _ := utils.OptionalArg(optionalCfg)
+	if err := opts.CheckAndSetDefaults(); err != nil {
+		return nil, err
 	}
-	srkHandle, err := t.getStorageRootKeyHandle(parent)
+	srkHandle, err := t.getStorageRootKeyHandle(*opts.Parent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get SRK handle: %w", err)
 	}
 
 	var akTemplate tpm2.TPMTPublic
 	// The default is RSA.
-	if opts != nil && slices.Contains([]algorithm.Algorithm{algorithm.ECDSA, algorithm.ECC}, opts.Algorithm) {
+	if slices.Contains([]algorithm.Algorithm{algorithm.ECDSA, algorithm.ECC}, opts.Algorithm) {
 		akTemplate = akTemplateECC
 	} else {
 		akTemplate = akTemplateRSA
@@ -319,7 +317,7 @@ func (t *tpmbase) pcrbanks() ([]tpm2.TPMIAlgHash, error) {
 	return pkgslices.Convert(t.cacheInfo.PcrBanks, func(p pcr.Bank) tpm2.TPMIAlgHash { return tpm2.TPMIAlgHash(p.Alg) }), nil
 }
 
-func (t *tpmbase) newKey(ak *AK, opts *KeyConfig) (*Key, error) {
+func (t *tpmbase) newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
 	k, ok := ak.ak.(*wrappedKey)
 	if !ok {
 		return nil, fmt.Errorf("expected *wrappedKey, got: %T", k)
@@ -330,10 +328,11 @@ func (t *tpmbase) newKey(ak *AK, opts *KeyConfig) (*Key, error) {
 		return nil, fmt.Errorf("keyType() failed: %w", err)
 	}
 	ck := certifyingKey{handle: k.hnd, keyType: akKty}
-	return t.newKeyCertifiedByKey(ck, opts)
+	return t.newKeyCertifiedByKey(ck, optionalCfg...)
 }
 
-func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, opts *KeyConfig) (*Key, error) {
+func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error) {
+	opts, _ := utils.OptionalArg(optionalCfg)
 	parentHnd, createRsp, err := createKey(t, opts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create key: %v", err)
@@ -391,14 +390,12 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, opts *KeyConfig) (*Key,
 	}, nil
 }
 
-func createKey(t *tpmbase, opts *KeyConfig) (handle, *tpm2.CreateResponse, error) {
-	var parent ParentKeyConfig
-	if opts != nil && opts.Parent != nil {
-		parent = *opts.Parent
-	} else {
-		parent = defaultParentConfig
+func createKey(t *tpmbase, optionalCfg ...KeyConfig) (handle, *tpm2.CreateResponse, error) {
+	opts, _ := utils.OptionalArg(optionalCfg)
+	if err := opts.CheckAndSetDefaults(); err != nil {
+		return nil, nil, err
 	}
-	srkHnd, err := t.getStorageRootKeyHandle(parent)
+	srkHnd, err := t.getStorageRootKeyHandle(*opts.Parent)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get SRK handle: %v", err)
 	}

@@ -11,3 +11,11 @@ func OptionalArg[T any](arg []T) (T, error) {
 	}
 	return arg[0], nil
 }
+
+func OptionalArgWithDefault[T any](defaultValue T, arg []T) T {
+	val, err := OptionalArg(arg)
+	if err != nil {
+		return defaultValue
+	}
+	return val
+}
