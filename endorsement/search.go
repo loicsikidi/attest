@@ -74,7 +74,7 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 		return EK{}, fmt.Errorf("invalid GetCertConfig: %w", err)
 	}
 
-	ek := EK{}
+	ek := EK{Template: cfg.Template}
 
 	cert, err := ReadEKCertFromNVRAM(tpm, cfg.Template.Index)
 	if err != nil {
@@ -129,7 +129,7 @@ func Get(tpm transport.TPM, cfg GetConfig) (EK, error) {
 		return EK{}, fmt.Errorf("invalid GetConfig: %w", err)
 	}
 
-	ek := EK{}
+	ek := EK{Template: cfg.Template}
 
 	pub, err := getOrCreateEKPublic(tpm, cfg.Template.Public.Type, cfg.Template)
 	if err != nil {

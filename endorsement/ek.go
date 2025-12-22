@@ -77,10 +77,13 @@ type EK struct {
 	// Certificate is the EK certificate for TPMs that provide it.
 	Certificate *x509.Certificate
 
-	// For Intel TPMs, Intel hosts certificates at a public URL derived from the
+	// For Intel and AMD TPMs, these certificates are hosted at a public URL derived from the
 	// Public key. Clients or servers can perform an HTTP GET to this URL, and
-	// use ParseEKCertificate on the response body.
+	// use [ParseEKCertificate] on the response body.
 	CertificateURL string
+
+	// Template is the template used to create the EK.
+	Template Template
 }
 
 // GetCertificate returns the EK certificate or nil if not available.
@@ -145,6 +148,17 @@ func (ek *EK) Check() error {
 		return errors.New("internal public key doesn't match to EK certificate")
 	}
 	return nil
+}
+
+// KeyType returns the KeyType of the EK.
+func (ek *EK) KeyType() tpmutil.KeyType {
+	kty, _ := tpmutil.PublicToKeyType(*ek.Public)
+	return kty
+}
+
+// KeyFamily returns the KeyFamily of the EK.
+func (ek *EK) KeyFamily() tpmutil.KeyFamily {
+	return tpmutil.AlgIDToKeyFamily(ek.Public.Type)
 }
 
 // ReadEKCertFromNVRAM reads the EK certificate from the NVRAM index specified.
