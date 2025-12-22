@@ -18,6 +18,7 @@ package attest
 import (
 	"github.com/loicsikidi/attest/endorsement"
 	"github.com/loicsikidi/attest/info"
+	"github.com/loicsikidi/attest/internal/utils"
 	"github.com/loicsikidi/attest/kty"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
@@ -43,11 +44,11 @@ type tpmBase interface {
 
 	loadAK(opaqueBlob []byte) (*AK, error)
 	loadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*AK, error)
-	newAK(opts *AKConfig) (*AK, error)
+	newAK(optionalCfg ...AKConfig) (*AK, error)
 	loadKeyWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*Key, error)
 	loadKey(opaqueBlob []byte) (*Key, error)
-	newKey(ak *AK, opts *KeyConfig) (*Key, error)
-	newKeyCertifiedByKey(ck certifyingKey, opts *KeyConfig) (*Key, error)
+	newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error)
+	newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error)
 }
 
 // TPM struct with a TPM device on the system.
@@ -95,8 +96,8 @@ func (t *TPM) PersistedEKs() []EKCertTemplate {
 }
 
 // NewAK creates an attestation key.
-func (t *TPM) NewAK(opts *AKConfig) (*AK, error) {
-	return t.tpm.newAK(opts)
+func (t *TPM) NewAK(optionalCfg ...AKConfig) (*AK, error) {
+	return t.tpm.newAK(optionalCfg...)
 }
 
 // Info retrieves static information about the TPM.
@@ -128,12 +129,10 @@ func (t *TPM) PCRBanks() ([]tpm2.TPMIAlgHash, error) {
 
 // NewKey creates an application key certified by the attestation key. If opts is nil
 // then DefaultConfig is used.
-func (t *TPM) NewKey(ak *AK, opts *KeyConfig) (*Key, error) {
-	if opts == nil {
-		opts = defaultConfig
-	}
-	if opts.KeyType == 0 {
-		opts = defaultConfig
+func (t *TPM) NewKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
+	opts, _ := utils.OptionalArg(optionalCfg)
+	if err := opts.CheckAndSetDefaults(); err != nil {
+		return nil, err
 	}
 	return t.tpm.newKey(ak, opts)
 }
@@ -151,14 +150,11 @@ func (t *TPM) LoadKey(opaqueBlob []byte) (*Key, error) {
 // an attest.AK object and only requires the AK handle and its algorithm.
 // Thus it can be used in cases where the attestation key was not created
 // by go-attestation library. If opts is nil then DefaultConfig is used.
-func (t *TPM) NewKeyCertifiedByKey(akHandle any, akType kty.KeyType, opts *KeyConfig) (*Key, error) {
-	if opts == nil {
-		opts = defaultConfig
+func (t *TPM) NewKeyCertifiedByKey(akHandle any, akType kty.KeyType, optionalCfg ...KeyConfig) (*Key, error) {
+	opts, _ := utils.OptionalArg(optionalCfg)
+	if err := opts.CheckAndSetDefaults(); err != nil {
+		return nil, err
 	}
-	if opts.KeyType == 0 {
-		opts = defaultConfig
-	}
-
 	handle, err := tpmutil.ToHandle(t.tpm.(*tpmbase).rwc, akHandle)
 	if err != nil {
 		return nil, err

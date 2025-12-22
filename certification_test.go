@@ -51,7 +51,7 @@ func TestSimTPMCertificationParameters(t *testing.T) {
 func testCertificationParameters(t *testing.T, tpm *TPM) {
 	for _, akKty := range []algorithm.Algorithm{algorithm.RSA, algorithm.ECC} {
 		ak := setupAttestationKey(t, tpm, akKty)
-		sk, err := tpm.NewKey(ak, nil) // default is RSA-2048
+		sk, err := tpm.NewKey(ak) // default is RSA-2048
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -181,9 +181,9 @@ func setupAttestationKey(t *testing.T, tpm *TPM, kty algorithm.Algorithm) *AK {
 	)
 	switch kty {
 	case algorithm.RSA:
-		ak, errAk = tpm.NewAK(nil)
+		ak, errAk = tpm.NewAK()
 	case algorithm.ECC, algorithm.ECDSA:
-		ak, errAk = tpm.NewAK(&AKConfig{Algorithm: algorithm.ECC})
+		ak, errAk = tpm.NewAK(AKConfig{Algorithm: algorithm.ECC})
 	default:
 		t.Fatalf("unsupported key type: %s", kty)
 	}
@@ -212,7 +212,7 @@ func TestSimTPMKeyCertification(t *testing.T) {
 // }
 
 func testKeyCertification(t *testing.T, tpm *TPM) {
-	ak, err := tpm.NewAK(nil)
+	ak, err := tpm.NewAK()
 	if err != nil {
 		t.Fatalf("NewAK() failed: %v", err)
 	}
@@ -235,7 +235,7 @@ func testKeyCertification(t *testing.T, tpm *TPM) {
 	}
 	for _, test := range []struct {
 		name string
-		opts *KeyConfig
+		opts []KeyConfig
 		err  error
 	}{
 		{
@@ -245,22 +245,28 @@ func testKeyCertification(t *testing.T, tpm *TPM) {
 		},
 		{
 			name: kty.ECC_P256.String(),
-			opts: &KeyConfig{
-				KeyType: kty.ECC_P256,
+			opts: []KeyConfig{
+				{
+					KeyType: kty.ECC_P256,
+				},
 			},
 			err: nil,
 		},
 		{
 			name: kty.ECC_P384.String(),
-			opts: &KeyConfig{
-				KeyType: kty.ECC_P384,
+			opts: []KeyConfig{
+				{
+					KeyType: kty.ECC_P384,
+				},
 			},
 			err: nil,
 		},
 		{
 			name: kty.ECC_P521.String(),
-			opts: &KeyConfig{
-				KeyType: kty.ECC_P521,
+			opts: []KeyConfig{
+				{
+					KeyType: kty.ECC_P521,
+				},
 			},
 			err: nil,
 		},
@@ -274,14 +280,16 @@ func testKeyCertification(t *testing.T, tpm *TPM) {
 		// },
 		{
 			name: kty.RSA_2048.String(),
-			opts: &KeyConfig{
-				KeyType: kty.RSA_2048,
+			opts: []KeyConfig{
+				{
+					KeyType: kty.RSA_2048,
+				},
 			},
 			err: nil,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			sk, err := tpm.NewKey(ak, test.opts)
+			sk, err := tpm.NewKey(ak, test.opts...)
 			if err != nil {
 				t.Fatalf("NewKey() failed: %v", err)
 			}

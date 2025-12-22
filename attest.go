@@ -25,6 +25,7 @@ import (
 
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/endorsement"
+	"github.com/loicsikidi/attest/internal/utils"
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/attest/quote"
 
@@ -36,7 +37,6 @@ import (
 )
 
 var (
-	defaultOpenConfig   = &OpenConfig{}
 	defaultParentConfig = ParentKeyConfig{
 		Algorithm: algorithm.RSA,
 		Handle:    0x81000001,
@@ -67,10 +67,8 @@ type OpenConfig struct {
 
 // OpenTPM initializes access to the TPM based on the
 // config provided.
-func OpenTPM(config *OpenConfig) (*TPM, error) {
-	if config == nil {
-		config = defaultOpenConfig
-	}
+func OpenTPM(optionalCfg ...OpenConfig) (*TPM, error) {
+	config, _ := utils.OptionalArg(optionalCfg)
 
 	if runtime.GOOS != "linux" {
 		return nil, ErrAttestNotImplemented
@@ -214,6 +212,13 @@ type AKConfig struct {
 
 	// If not specified, the default algorithm (RSA) is assumed.
 	Algorithm algorithm.Algorithm
+}
+
+func (c *AKConfig) CheckAndSetDefaults() error {
+	if c.Parent == nil {
+		c.Parent = &defaultParentConfig
+	}
+	return nil
 }
 
 // EncryptedCredential represents encrypted parameters which must be activated
