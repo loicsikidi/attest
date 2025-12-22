@@ -145,12 +145,11 @@ func (t *tpmbase) newAK(opts *AKConfig) (*AK, error) {
 		return nil, fmt.Errorf("failed to access creation data: %w", err)
 	}
 
-	load := tpm2.Load{
-		ParentHandle: srkHandle,
+	akHnd, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
+		ParentHandle: tpmutil.NewHandle(srkHandle),
 		InPublic:     akCreateRsp.OutPublic,
 		InPrivate:    akCreateRsp.OutPrivate,
-	}
-	akHnd, err := tpmutil.Load(t.rwc, load)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("Load() failed: %w", err)
 	}
@@ -197,57 +196,13 @@ func (t *tpmbase) newAK(opts *AKConfig) (*AK, error) {
 }
 
 func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (handle, error) {
-	srkHandle := parent.Handle
-	readPublicRsp, err := tpm2.ReadPublic{
-		ObjectHandle: srkHandle,
-	}.Execute(t.rwc)
-	if err == nil {
-		// Found the persistent handle, assume it's the key we want.
-		return &tpm2.NamedHandle{Name: readPublicRsp.Name, Handle: srkHandle}, nil
-	}
-
-	rerr := err // Preserve this failure for later logging, if needed
-
-	var srkTemplate tpm2.TPMTPublic
-	switch parent.Algorithm {
-	case algorithm.RSA:
-		srkTemplate = defaultRSASRKTemplate
-	case algorithm.ECDSA, algorithm.ECC:
-		srkTemplate = defaultECCSRKTemplate
-	default:
-		return tpm2.NamedHandle{}, fmt.Errorf("unsupported SRK algorithm: %v", parent.Algorithm)
-	}
-
-	srkCreate := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHOwner,
-		InPublic:      tpm2.New2B(srkTemplate),
-	}
-	srkCreateRsp, closer, err := tpmutil.CreatePrimaryWithResponse(t.rwc, srkCreate)
-	if err != nil {
-		return tpm2.NamedHandle{}, fmt.Errorf("ReadPublic failed (%v), and then CreatePrimary failed: %v", rerr, err)
-	}
-	defer closer() //nolint:errcheck // ignore error on close
-
-	handle := &tpm2.NamedHandle{
-		Handle: srkCreateRsp.ObjectHandle,
-		Name:   srkCreateRsp.Name,
-	}
-
-	_, err = tpm2.EvictControl{
-		Auth:             tpm2.TPMRHOwner,
-		ObjectHandle:     handle,
-		PersistentHandle: srkHandle,
-	}.Execute(t.rwc)
-	if err != nil {
-		return tpm2.NamedHandle{}, fmt.Errorf("EvictControl failed: %w", err)
-	}
-
-	handle.Handle = srkHandle // Update the handle to the persistent handle.
-
-	return handle, nil
+	return tpmutil.GetSKRHandle(t.rwc, tpmutil.ParentConfig{
+		Handle:    tpmutil.NewHandle(parent.Handle),
+		KeyFamily: tpmutil.AlgIDToKeyFamily(tpm2.TPMAlgID(parent.Algorithm)),
+	})
 }
 
-// TODO(lsikidi): add this function in tpmutil
+// TODO(lsikidi): migrate to tpmutil.GetEKHandle
 func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handle, error) {
 	var (
 		ekHandle   tpm2.TPMHandle
@@ -258,7 +213,6 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handl
 		ekHandle = endorsement.RSAHandle
 		ekTemplate = endorsement.RSAEKTemplate
 	} else {
-		// TODO(lsikidi): why not use endorsementKey.Public directly?
 		ekTpl, err := endorsement.GetTemplate(endorsementKey.Public)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get EK template: %w", err)
@@ -282,11 +236,10 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handl
 
 	rerr := err // Preserve this failure for later logging, if needed
 
-	ekCreate := tpm2.CreatePrimary{
+	ekCreateRsp, closer, err := tpmutil.CreatePrimaryWithResponse(t.rwc, tpmutil.CreatePrimaryConfig{
 		PrimaryHandle: tpm2.TPMRHEndorsement,
-		InPublic:      tpm2.New2B(ekTemplate),
-	}
-	ekCreateRsp, closer, err := tpmutil.CreatePrimaryWithResponse(t.rwc, ekCreate)
+		Template:      ekTemplate,
+	})
 	if err != nil {
 		return tpm2.NamedHandle{}, fmt.Errorf("ReadPublic failed (%v), and then CreatePrimary failed: %v", rerr, err)
 	}
@@ -334,12 +287,11 @@ func (t *tpmbase) deserializeAndLoad(opaqueBlob []byte, parent ParentKeyConfig) 
 		return nil, nil, fmt.Errorf("unmarshal private key failed: %w", err)
 	}
 
-	load := tpm2.Load{
-		ParentHandle: srkHandle,
+	handle, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
+		ParentHandle: tpmutil.NewHandle(srkHandle),
 		InPublic:     *pub,
 		InPrivate:    *priv,
-	}
-	handle, err := tpmutil.Load(t.rwc, load)
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("Load() failed: %w", err)
 	}
@@ -396,12 +348,11 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, opts *KeyConfig) (*Key,
 		return nil, fmt.Errorf("failed to access application key's creation data: %w", err)
 	}
 
-	loadCmd := tpm2.Load{
-		ParentHandle: parentHnd,
+	keyHnd, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
+		ParentHandle: tpmutil.NewHandle(parentHnd),
 		InPublic:     createRsp.OutPublic,
 		InPrivate:    createRsp.OutPrivate,
-	}
-	keyHnd, err := tpmutil.Load(t.rwc, loadCmd)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("Load() failed: %v", err)
 	}

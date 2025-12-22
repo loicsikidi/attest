@@ -253,24 +253,17 @@ func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template
 	}
 
 	// Fallback: create the EK using the template
-	createRsp, closer, err := tpmutil.CreatePrimaryWithResponse(tpm, tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.AuthHandle{
-			Handle: tpm2.TPMRHEndorsement,
-			Auth:   tpmutil.NoAuth,
-		},
-		InPublic: tpm2.New2B(template.Public),
+	ekHandle, err := tpmutil.CreatePrimary(tpm, tpmutil.CreatePrimaryConfig{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		Auth:          tpmutil.NoAuth,
+		Template:      template.Public,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("CreatePrimary failed: %w", err)
 	}
-	defer closer() //nolint:errcheck
+	defer ekHandle.Handle() //nolint:errcheck
 
-	pub, err := createRsp.OutPublic.Contents()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get public contents: %w", err)
-	}
-
-	return pub, nil
+	return ekHandle.Public(), nil
 }
 
 // isTemplateMatch verifies that the public key matches the expected template.

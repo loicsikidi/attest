@@ -153,7 +153,7 @@ func ReadEKCertFromNVRAM(tpm transport.TPM, index tpm2.TPMHandle) (*x509.Certifi
 	// By passing nvramCertIndex as our auth handle we're using the NV index
 	// itself as the auth hierarchy, which is the same approach
 	// tpm2_getekcertificate takes.
-	ekCert, err := tpmutil.NVRead(tpm, &tpmutil.NVReadConfig{Index: index})
+	ekCert, err := tpmutil.NVRead(tpm, tpmutil.NVReadConfig{Index: index})
 	if err != nil {
 		return nil, fmt.Errorf("failed reading EK cert: %w", err)
 	}
