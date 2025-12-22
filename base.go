@@ -200,23 +200,23 @@ func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (handle, error
 	})
 }
 
-// TODO(lsikidi): migrate to tpmutil.GetEKHandle
 func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handle, error) {
 	var (
+		family     tpmutil.KeyFamily
+		kty        tpmutil.KeyType
+		isLowRange bool
 		ekHandle   tpm2.TPMHandle
-		ekTemplate tpm2.TPMTPublic
 	)
 	// The default is RSA for backward compatibility.
 	if endorsementKey == nil {
 		ekHandle = endorsement.RSAHandle
-		ekTemplate = endorsement.RSAEKTemplate
+		family = tpmutil.RSA
+		isLowRange = true
+		kty = tpmutil.RSA2048
 	} else {
-		ekTpl, err := endorsement.GetTemplate(endorsementKey.Public)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get EK template: %w", err)
-		}
-		ekTemplate = ekTpl.Public
-
+		family = endorsementKey.KeyFamily()
+		isLowRange = endorsementKey.Template.IsLowRange()
+		kty = tpmutil.MustPublicToKeyType(*endorsementKey.Public)
 		var ok bool
 		ekHandle, ok = endorsement.HandleByType[endorsementKey.Public.Type]
 		if !ok {
@@ -232,32 +232,15 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handl
 		return &tpm2.NamedHandle{Name: readPublicRsp.Name, Handle: ekHandle}, nil
 	}
 
-	rerr := err // Preserve this failure for later logging, if needed
-
-	ekCreateRsp, closer, err := tpmutil.CreatePrimaryWithResponse(t.rwc, tpmutil.CreatePrimaryConfig{
-		PrimaryHandle: tpm2.TPMRHEndorsement,
-		Template:      ekTemplate,
+	handle, err := tpmutil.PersistEK(t.rwc, tpmutil.EKParentConfig{
+		KeyFamily:  family,
+		IsLowRange: isLowRange,
+		Handle:     tpmutil.NewHandle(ekHandle),
+		KeyType:    kty,
 	})
 	if err != nil {
-		return tpm2.NamedHandle{}, fmt.Errorf("ReadPublic failed (%v), and then CreatePrimary failed: %v", rerr, err)
+		return nil, fmt.Errorf("persist EK failed: %w", err)
 	}
-	defer closer() //nolint:errcheck
-
-	handle := &tpm2.NamedHandle{
-		Handle: ekCreateRsp.ObjectHandle,
-		Name:   ekCreateRsp.Name,
-	}
-
-	_, err = tpm2.EvictControl{
-		Auth:             tpm2.TPMRHOwner,
-		ObjectHandle:     handle,
-		PersistentHandle: ekHandle,
-	}.Execute(t.rwc)
-	if err != nil {
-		return tpm2.NamedHandle{}, fmt.Errorf("EvictControl failed: %w", err)
-	}
-
-	handle.Handle = ekHandle // Update the handle to the persistent handle.
 
 	return handle, nil
 }
