@@ -22,7 +22,7 @@ Improvements over the original repo:
 
 > [!WARNING]
 > **Breaking change**
-> - **drop support for Windows** (it could be added back in the future if I need it) because I don't have access to Windows devices with TPMs for testing.
+> - **Windows support is limited to core features** (via the `TPM` struct). Advanced features from the upstream repository have been removed due to lack of access to Windows devices with TPMs for testing.
 
 ### Sync with upstream
 

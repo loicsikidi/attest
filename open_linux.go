@@ -1,3 +1,5 @@
+//go:build linux
+
 // Copyright 2019 Google Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
@@ -22,6 +24,20 @@ import (
 
 	"github.com/google/go-tpm/tpm2/transport/linuxtpm"
 )
+
+// autoOpenTPM tries to automatically find and open a TPM device on Linux systems.
+func autoOpenTPM() (*TPM, error) {
+	candidateTPMs, err := probeSystemTPMs()
+	if err != nil {
+		return nil, err
+	}
+	for _, tpm := range candidateTPMs {
+		if tpm, err := openTPM(tpm); err == nil {
+			return tpm, nil
+		}
+	}
+	return nil, ErrTPMNotAvailable
+}
 
 func probeSystemTPMs() ([]string, error) {
 	var tpms []string
