@@ -20,7 +20,6 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/loicsikidi/attest/algorithm"
@@ -70,21 +69,8 @@ type OpenConfig struct {
 func OpenTPM(optionalCfg ...OpenConfig) (*TPM, error) {
 	config := utils.OptionalArg(optionalCfg)
 
-	if runtime.GOOS != "linux" {
-		return nil, ErrAttestNotImplemented
-	}
-
 	if config.Transport == nil {
-		candidateTPMs, err := probeSystemTPMs()
-		if err != nil {
-			return nil, err
-		}
-		for _, tpm := range candidateTPMs {
-			if tpm, err := openTPM(tpm); err == nil {
-				return tpm, nil
-			}
-		}
-		return nil, ErrTPMNotAvailable
+		return autoOpenTPM()
 	}
 	tpm := &tpmbase{rwc: config.Transport}
 	if err := probeTpm(tpm); err != nil {
