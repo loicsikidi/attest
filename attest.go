@@ -68,7 +68,7 @@ type OpenConfig struct {
 // OpenTPM initializes access to the TPM based on the
 // config provided.
 func OpenTPM(optionalCfg ...OpenConfig) (*TPM, error) {
-	config, _ := utils.OptionalArg(optionalCfg)
+	config := utils.OptionalArg(optionalCfg)
 
 	if runtime.GOOS != "linux" {
 		return nil, ErrAttestNotImplemented

@@ -136,7 +136,7 @@ func (k *Key) Blobs() (pub, priv []byte, err error) {
 }
 
 func templateFromConfig(optionalCfg ...KeyConfig) (tpm2.TPMTPublic, error) {
-	opts, _ := utils.OptionalArg(optionalCfg)
+	opts := utils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return tpm2.TPMTPublic{}, err
 	}

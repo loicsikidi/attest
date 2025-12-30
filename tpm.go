@@ -130,7 +130,7 @@ func (t *TPM) PCRBanks() ([]tpm2.TPMIAlgHash, error) {
 // NewKey creates an application key certified by the attestation key. If opts is nil
 // then DefaultConfig is used.
 func (t *TPM) NewKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
-	opts, _ := utils.OptionalArg(optionalCfg)
+	opts := utils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (t *TPM) LoadKey(opaqueBlob []byte) (*Key, error) {
 // Thus it can be used in cases where the attestation key was not created
 // by go-attestation library. If opts is nil then DefaultConfig is used.
 func (t *TPM) NewKeyCertifiedByKey(akHandle any, akType kty.KeyType, optionalCfg ...KeyConfig) (*Key, error) {
-	opts, _ := utils.OptionalArg(optionalCfg)
+	opts := utils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, err
 	}

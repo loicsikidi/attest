@@ -10,7 +10,6 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpm2/transport/linuxtpm"
-	"github.com/loicsikidi/attest/info"
 )
 
 const (
@@ -40,14 +39,14 @@ func openTPM(t *testing.T) transport.TPM {
 	return tpm
 }
 
-func TestSearchAvailableTemplates_Integration(t *testing.T) {
+func TestSearchAvailableCertificates_Integration(t *testing.T) {
 	tpm := openTPM(t)
 
 	t.Run("search all key types", func(t *testing.T) {
-		results := SearchAvailableTemplates(tpm)
+		results := SearchAvailableCertificates(tpm)
 
 		if len(results) == 0 {
-			t.Error("SearchAvailableTemplates() returned no templates")
+			t.Error("SearchAvailableCertificates() returned no templates")
 		}
 
 		// Verify each result has valid index and template
@@ -62,10 +61,10 @@ func TestSearchAvailableTemplates_Integration(t *testing.T) {
 	})
 
 	t.Run("search RSA only", func(t *testing.T) {
-		results := SearchAvailableTemplates(tpm, tpm2.TPMAlgRSA)
+		results := SearchAvailableCertificates(tpm, tpm2.TPMAlgRSA)
 
 		if len(results) == 0 {
-			t.Error("SearchAvailableTemplates() returned no templates")
+			t.Error("SearchAvailableCertificates() returned no templates")
 		}
 
 		// Should return only RSA templates
@@ -77,10 +76,10 @@ func TestSearchAvailableTemplates_Integration(t *testing.T) {
 	})
 
 	t.Run("search ECC only", func(t *testing.T) {
-		results := SearchAvailableTemplates(tpm, tpm2.TPMAlgECC)
+		results := SearchAvailableCertificates(tpm, tpm2.TPMAlgECC)
 
 		if len(results) == 0 {
-			t.Error("SearchAvailableTemplates() returned no templates")
+			t.Error("SearchAvailableCertificates() returned no templates")
 		}
 
 		// Should return only ECC templates
@@ -96,12 +95,12 @@ func TestGetCertificate_Integration(t *testing.T) {
 	tpm := openTPM(t)
 
 	t.Run("get RSA certificate with validation", func(t *testing.T) {
-		templates := SearchAvailableTemplates(tpm, tpm2.TPMAlgRSA)
+		templates := SearchAvailableCertificates(tpm, tpm2.TPMAlgRSA)
 		if len(templates) == 0 {
 			t.Skip("No RSA EK certificate available on this TPM")
 		}
 
-		ek, err := GetCertificate(tpm, GetConfig{
+		ek, err := GetCertificate(tpm, GetCertConfig{
 			Template: templates[0],
 		})
 		if err != nil {
@@ -120,12 +119,12 @@ func TestGetCertificate_Integration(t *testing.T) {
 	})
 
 	t.Run("get ECC certificate with validation", func(t *testing.T) {
-		templates := SearchAvailableTemplates(tpm, tpm2.TPMAlgECC)
+		templates := SearchAvailableCertificates(tpm, tpm2.TPMAlgECC)
 		if len(templates) == 0 {
 			t.Skip("No ECC EK certificate available on this TPM")
 		}
 
-		ek, err := GetCertificate(tpm, GetConfig{
+		ek, err := GetCertificate(tpm, GetCertConfig{
 			Template: templates[0],
 		})
 		if err != nil {
@@ -143,57 +142,13 @@ func TestGetCertificate_Integration(t *testing.T) {
 		}
 	})
 
-	t.Run("get certificate with Info for URL", func(t *testing.T) {
-		templates := SearchAvailableTemplates(tpm)
-		if len(templates) == 0 {
-			t.Skip("No EK certificates available on this TPM")
-		}
-
-		tpmInfo, err := info.Get(tpm)
-		if err != nil {
-			t.Fatalf("Failed to get TPM info: %v", err)
-		}
-
-		ek, err := GetCertificate(tpm, GetConfig{
-			Template: templates[0],
-			Info:     tpmInfo,
-		})
-		if err != nil {
-			t.Fatalf("GetCertificate() failed: %v", err)
-		}
-
-		// Certificate URL behavior depends on manufacturer
-		switch tpmInfo.Manufacturer.ASCII {
-		case "INTC":
-			if ek.CertificateURL == "" {
-				t.Error("EK has empty certificate URL for Intel TPM")
-			}
-			if !strings.Contains(ek.CertificateURL, IntelEKCertServiceURL) {
-				t.Errorf("Expected Intel EK cert URL to contain %s, got %s", IntelEKCertServiceURL, ek.CertificateURL)
-			}
-		case "AMD":
-			if ek.CertificateURL == "" {
-				t.Error("EK has empty certificate URL for AMD TPM")
-			}
-			if !strings.Contains(ek.CertificateURL, AmdEKCertServiceURL) {
-				t.Errorf("Expected AMD EK cert URL to contain %s, got %s", AmdEKCertServiceURL, ek.CertificateURL)
-			}
-		default:
-			// For other manufacturers (NTC, STM, etc.), EkCertURL returns empty string
-			// This is expected behavior
-			if ek.CertificateURL != "" {
-				t.Logf("Note: Certificate URL is set for manufacturer %s: %s", tpmInfo.Manufacturer.ASCII, ek.CertificateURL)
-			}
-		}
-	})
-
 	t.Run("skip public matching", func(t *testing.T) {
-		templates := SearchAvailableTemplates(tpm)
+		templates := SearchAvailableCertificates(tpm)
 		if len(templates) == 0 {
 			t.Skip("No EK certificates available on this TPM")
 		}
 
-		ek, err := GetCertificate(tpm, GetConfig{
+		ek, err := GetCertificate(tpm, GetCertConfig{
 			Template:           templates[0],
 			SkipPublicMatching: true,
 		})
@@ -210,7 +165,7 @@ func TestGetCertificate_Integration(t *testing.T) {
 	})
 
 	t.Run("error on invalid template", func(t *testing.T) {
-		_, err := GetCertificate(tpm, GetConfig{
+		_, err := GetCertificate(tpm, GetCertConfig{
 			Template: Template{},
 		})
 		if err == nil {
@@ -220,7 +175,7 @@ func TestGetCertificate_Integration(t *testing.T) {
 
 	t.Run("check fails when public key differs from certificate", func(t *testing.T) {
 		// Get available templates
-		templates := SearchAvailableTemplates(tpm)
+		templates := SearchAvailableCertificates(tpm)
 		if len(templates) < 2 {
 			t.Skip("Need at least 2 EK certificates to test mismatch scenario")
 		}
@@ -234,7 +189,7 @@ func TestGetCertificate_Integration(t *testing.T) {
 
 		// This should fail during Check() because the generated public key
 		// won't match the certificate's public key
-		_, err := GetCertificate(tpm, GetConfig{
+		_, err := GetCertificate(tpm, GetCertConfig{
 			Template: mismatchedTemplate,
 		})
 
@@ -284,7 +239,7 @@ func TestSearchCertificates_Integration(t *testing.T) {
 	})
 
 	t.Run("search RSA only", func(t *testing.T) {
-		eks, err := SearchCertificates(tpm, SearchConfig{
+		eks, err := SearchCertificates(tpm, SearchCertConfig{
 			KeyType: tpm2.TPMAlgRSA,
 		})
 		if err != nil {
@@ -300,7 +255,7 @@ func TestSearchCertificates_Integration(t *testing.T) {
 	})
 
 	t.Run("skip public matching", func(t *testing.T) {
-		eks, err := SearchCertificates(tpm, SearchConfig{
+		eks, err := SearchCertificates(tpm, SearchCertConfig{
 			SkipPublicMatching: true,
 			SkipCheck:          true,
 		})
@@ -349,7 +304,7 @@ func TestSearchPersistedTemplates_Integration(t *testing.T) {
 
 	t.Run("persisted templates should be in available templates", func(t *testing.T) {
 		persistedTemplates := SearchPersistedTemplates(tpm)
-		availableTemplates := SearchAvailableTemplates(tpm)
+		availableTemplates := SearchAvailableCertificates(tpm)
 
 		if len(availableTemplates) == 0 {
 			t.Skip("No available templates on this TPM")

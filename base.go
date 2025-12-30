@@ -73,7 +73,7 @@ func (t *tpmbase) info() (*info.TPMInfo, error) {
 }
 
 func (t *tpmbase) ekCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error) {
-	cfg, _ := utils.OptionalArg(optionalCfg)
+	cfg := utils.OptionalArg(optionalCfg)
 	if cfg.Info == nil {
 		cfg.Info = t.cacheInfo
 	}
@@ -109,7 +109,7 @@ func (t *tpmbase) persistedEKs() []EKCertTemplate {
 }
 
 func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
-	opts, _ := utils.OptionalArg(optionalCfg)
+	opts := utils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func (t *tpmbase) newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
 }
 
 func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error) {
-	opts, _ := utils.OptionalArg(optionalCfg)
+	opts := utils.OptionalArg(optionalCfg)
 	parentHnd, createRsp, err := createKey(t, opts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create key: %v", err)
@@ -374,7 +374,7 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfi
 }
 
 func createKey(t *tpmbase, optionalCfg ...KeyConfig) (handle, *tpm2.CreateResponse, error) {
-	opts, _ := utils.OptionalArg(optionalCfg)
+	opts := utils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, nil, err
 	}
