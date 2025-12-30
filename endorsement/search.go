@@ -2,6 +2,7 @@ package endorsement
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
@@ -200,10 +201,7 @@ func (c *SearchCertConfig) CheckAndSetDefault() error {
 //		SkipCheck: true,
 //	})
 func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchCertConfig) ([]EK, error) {
-	cfg, err := utils.OptionalArg(optionalCfg)
-	if err != nil {
-		cfg = SearchCertConfig{}
-	}
+	cfg := utils.OptionalArg(optionalCfg)
 	if err := cfg.CheckAndSetDefault(); err != nil {
 		return nil, err
 	}
@@ -323,8 +321,8 @@ func SearchAvailableCertificates(tpm transport.TPM, optionalKty ...tpm2.TPMAlgID
 	var results []Template
 
 	// Get optional key type filter
-	keyType, err := utils.OptionalArg(optionalKty)
-	filterByKeyType := err == nil
+	keyType := utils.OptionalArg(optionalKty)
+	filterByKeyType := slices.Contains([]tpm2.TPMAlgID{tpm2.TPMAlgRSA, tpm2.TPMAlgECC}, keyType)
 
 	var templatesToCheck []Template
 	if filterByKeyType {
