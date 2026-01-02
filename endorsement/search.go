@@ -254,7 +254,7 @@ func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template
 	ekHandle, err := tpmutil.CreatePrimary(tpm, tpmutil.CreatePrimaryConfig{
 		PrimaryHandle: tpm2.TPMRHEndorsement,
 		Auth:          tpmutil.NoAuth,
-		Template:      template.Public,
+		InPublic:      template.Public,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("CreatePrimary failed: %w", err)

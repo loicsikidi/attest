@@ -196,37 +196,16 @@ func (p *CertificationParameters) Generate(rnd io.Reader, verifyOpts VerifyOpts,
 // TODO(lsikidi): include authN parameters?
 // certify uses AK's handle and the passed signature scheme to certify the key
 // with the `hnd` handle.
-func certify(tpm transport.TPM, keyHnd any, akHnd handle, qualifyingData []byte, scheme tpm2.TPMTSigScheme) (*CertificationParameters, error) {
-	kHnd, err := tpmutil.ToHandle(tpm, keyHnd)
+func certify(tpm transport.TPM, keyHandle any, akHandle tpmutil.Handle, qualifyingData []byte, scheme tpm2.TPMTSigScheme) (*CertificationParameters, error) {
+	handle, err := tpmutil.ToHandle(tpm, keyHandle)
 	if err != nil {
-		return nil, fmt.Errorf("could not get handle from %T: %w", kHnd, err)
+		return nil, fmt.Errorf("could not get handle from %T: %w", handle, err)
 	}
-
-	rspReadPublic, err := tpm2.ReadPublic{
-		ObjectHandle: tpm2.TPMIDHObject(kHnd.HandleValue()),
-	}.Execute(tpm)
-	if err != nil {
-		return nil, fmt.Errorf("tpm2.ReadPublic() failed: %w", err)
-	}
-
-	pub, err := rspReadPublic.OutPublic.Contents()
-	if err != nil {
-		return nil, fmt.Errorf("could not encode public key: %w", err)
-	}
-
 	rspCertify, err := tpm2.Certify{
 		// The handle of the key to certify.
-		ObjectHandle: tpm2.AuthHandle{
-			Handle: tpm2.TPMHandle(kHnd.HandleValue()),
-			Name:   *kHnd.KnownName(),
-			Auth:   tpmutil.NoAuth,
-		},
+		ObjectHandle: tpmutil.ToAuthHandle(handle, tpmutil.NoAuth),
 		// The handle of the AK that will sign the certification.
-		SignHandle: tpm2.AuthHandle{
-			Handle: tpm2.TPMHandle(akHnd.HandleValue()),
-			Name:   *akHnd.KnownName(),
-			Auth:   tpmutil.NoAuth,
-		},
+		SignHandle: tpmutil.ToAuthHandle(akHandle, tpmutil.NoAuth),
 		QualifyingData: tpm2.TPM2BData{
 			Buffer: qualifyingData,
 		},
@@ -241,7 +220,7 @@ func certify(tpm transport.TPM, keyHnd any, akHnd handle, qualifyingData []byte,
 		return nil, fmt.Errorf("could not decode certify info: %w", err)
 	}
 	return &CertificationParameters{
-		Public:            pub,
+		Public:            handle.Public(),
 		CreateAttestation: att,
 		CreateSignature:   rspCertify.Signature,
 	}, nil

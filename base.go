@@ -46,7 +46,7 @@ type tpmbase struct {
 
 // certifyingKey contains details of a TPM key that could certify other keys.
 type certifyingKey struct {
-	handle  handle
+	handle  tpmutil.Handle
 	keyType kty.KeyType
 }
 
@@ -130,23 +130,23 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 		return nil, fmt.Errorf("failed to get signature scheme from AK template: %w", err)
 	}
 
-	akCreateRsp, err := tpm2.Create{
+	akCreateResult, err := tpmutil.CreateWithResult(t.rwc, tpmutil.CreateConfig{
 		ParentHandle: srkHandle,
-		InPublic:     tpm2.New2B(akTemplate),
-	}.Execute(t.rwc)
+		InPublic:     akTemplate,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("CreateKey failed: %w", err)
 	}
 
-	createData, err := akCreateRsp.CreationData.Contents()
-	if err != nil {
-		return nil, fmt.Errorf("failed to access creation data: %w", err)
+	createData := akCreateResult.CreationInfo()
+	if createData == nil {
+		return nil, fmt.Errorf("failed to access creation data")
 	}
 
-	akHnd, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
+	akHandle, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
 		ParentHandle: tpmutil.NewHandle(srkHandle),
-		InPublic:     akCreateRsp.OutPublic,
-		InPrivate:    akCreateRsp.OutPrivate,
+		InPublic:     akCreateResult.OutPublic,
+		InPrivate:    akCreateResult.OutPrivate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("Load() failed: %w", err)
@@ -155,35 +155,31 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 	// If any errors occur, free the AK's handle.
 	defer func() {
 		if err != nil {
-			akHnd.Close() //nolint:errcheck // ignore error on close
+			akHandle.Close() //nolint:errcheck // ignore error on close
 		}
 	}()
 
 	rspCC, err := tpm2.CertifyCreation{
-		SignHandle: tpm2.AuthHandle{
-			Handle: tpm2.TPMHandle(akHnd.HandleValue()),
-			Name:   *akHnd.KnownName(),
-			Auth:   tpmutil.NoAuth,
-		},
-		ObjectHandle:   akHnd,
-		CreationHash:   akCreateRsp.CreationHash,
+		SignHandle:     tpmutil.ToAuthHandle(akHandle, tpmutil.NoAuth),
+		ObjectHandle:   akHandle,
+		CreationHash:   akCreateResult.CreationHash,
 		InScheme:       sigScheme,
-		CreationTicket: akCreateRsp.CreationTicket,
+		CreationTicket: akCreateResult.CreationTicket,
 	}.Execute(t.rwc)
 	if err != nil {
 		return nil, fmt.Errorf("CertifyCreation failed: %w", err)
 	}
 
-	pubKey, err := tpmcrypto.PublicKey(akCreateRsp.OutPublic)
+	pubKey, err := tpmcrypto.PublicKey(akCreateResult.OutPublic)
 	if err != nil {
 		return nil, fmt.Errorf("access public key failed: %w", err)
 	}
 
 	return &AK{
 		ak: newWrappedAK(
-			akHnd,
-			akCreateRsp.OutPrivate,
-			akCreateRsp.OutPublic,
+			akHandle,
+			akCreateResult.OutPrivate,
+			akCreateResult.OutPublic,
 			*createData,
 			// We can only certify the creation immediately afterwards, so we cache the result.
 			rspCC.CertifyInfo,
@@ -193,7 +189,7 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 	}, nil
 }
 
-func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (handle, error) {
+func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (tpmutil.Handle, error) {
 	return tpmutil.GetSKRHandle(t.rwc, tpmutil.ParentConfig{
 		Handle:    tpmutil.NewHandle(parent.Handle),
 		KeyFamily: tpmutil.AlgIDToKeyFamily(tpm2.TPMAlgID(parent.Algorithm)),
@@ -269,7 +265,7 @@ func (t *tpmbase) deserializeAndLoad(opaqueBlob []byte, parent ParentKeyConfig) 
 	}
 
 	handle, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
-		ParentHandle: tpmutil.NewHandle(srkHandle),
+		ParentHandle: srkHandle,
 		InPublic:     *pub,
 		InPrivate:    *priv,
 	})
@@ -316,24 +312,21 @@ func (t *tpmbase) newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
 
 func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error) {
 	opts := utils.OptionalArg(optionalCfg)
-	parentHnd, createRsp, err := createKey(t, opts)
+	parentHnd, createResult, err := createKey(t, opts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create key: %v", err)
 	}
 
-	pub, err := createRsp.OutPublic.Contents()
-	if err != nil {
-		return nil, fmt.Errorf("failed to access application key's public key from TPM response: %w", err)
-	}
-	createData, err := createRsp.CreationData.Contents()
-	if err != nil {
-		return nil, fmt.Errorf("failed to access application key's creation data: %w", err)
+	pub := createResult.PublicArea()
+	createData := createResult.CreationInfo()
+	if createData == nil {
+		return nil, fmt.Errorf("failed to access application key's creation data")
 	}
 
 	keyHnd, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
 		ParentHandle: tpmutil.NewHandle(parentHnd),
-		InPublic:     createRsp.OutPublic,
-		InPrivate:    createRsp.OutPrivate,
+		InPublic:     createResult.OutPublic,
+		InPrivate:    createResult.OutPrivate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("Load() failed: %v", err)
@@ -363,8 +356,8 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfi
 	return &Key{
 		key: newWrappedKey(
 			keyHnd,
-			createRsp.OutPrivate,
-			createRsp.OutPublic,
+			createResult.OutPrivate,
+			createResult.OutPublic,
 			*createData,
 			tpm2.New2B(*cp.CreateAttestation),
 			cp.CreateSignature),
@@ -373,7 +366,7 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfi
 	}, nil
 }
 
-func createKey(t *tpmbase, optionalCfg ...KeyConfig) (handle, *tpm2.CreateResponse, error) {
+func createKey(t *tpmbase, optionalCfg ...KeyConfig) (handle, *tpmutil.CreateResult, error) {
 	opts := utils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, nil, err
@@ -387,14 +380,14 @@ func createKey(t *tpmbase, optionalCfg ...KeyConfig) (handle, *tpm2.CreateRespon
 	if err != nil {
 		return nil, nil, fmt.Errorf("incorrect key options: %v", err)
 	}
-	createRsp, err := tpm2.Create{
+	createResult, err := tpmutil.CreateWithResult(t.rwc, tpmutil.CreateConfig{
 		ParentHandle: srkHnd,
-		InPublic:     tpm2.New2B(tmpl),
-	}.Execute(t.rwc)
+		InPublic:     tmpl,
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("CreateKey() failed: %v", err)
 	}
-	return srkHnd, createRsp, nil
+	return srkHnd, createResult, nil
 }
 
 func (t *tpmbase) loadKey(opaqueBlob []byte) (*Key, error) {
