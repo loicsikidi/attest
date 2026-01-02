@@ -128,7 +128,7 @@ func TestSimPersistedEKs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create EK using CreatePrimary
-			createRsp, closer, err := tpmutil.CreatePrimaryWithResponse(tpm.tpm.(*tpmbase).rwc, tpmutil.CreatePrimaryConfig{
+			ekHandle, err := tpmutil.CreatePrimary(tpm.tpm.(*tpmbase).rwc, tpmutil.CreatePrimaryConfig{
 				PrimaryHandle: tpm2.TPMRHEndorsement,
 				Template:      tt.template.Public,
 				Auth:          tpmutil.NoAuth,
@@ -136,17 +136,14 @@ func TestSimPersistedEKs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreatePrimary failed: %v", err)
 			}
+			defer ekHandle.Close()
 
 			// Persist the EK to the specified handle
 			_, err = tpm2.EvictControl{
-				Auth: tpm2.TPMRHOwner,
-				ObjectHandle: &tpm2.NamedHandle{
-					Handle: createRsp.ObjectHandle,
-					Name:   createRsp.Name,
-				},
+				Auth:             tpm2.TPMRHOwner,
+				ObjectHandle:     ekHandle,
 				PersistentHandle: tt.handle,
 			}.Execute(tpm.tpm.(*tpmbase).rwc)
-			closer()
 			if err != nil {
 				t.Fatalf("EvictControl failed: %v", err)
 			}
