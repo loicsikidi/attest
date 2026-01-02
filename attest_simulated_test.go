@@ -130,7 +130,7 @@ func TestSimPersistedEKs(t *testing.T) {
 			// Create EK using CreatePrimary
 			ekHandle, err := tpmutil.CreatePrimary(tpm.tpm.(*tpmbase).rwc, tpmutil.CreatePrimaryConfig{
 				PrimaryHandle: tpm2.TPMRHEndorsement,
-				Template:      tt.template.Public,
+				InPublic:      tt.template.Public,
 				Auth:          tpmutil.NoAuth,
 			})
 			if err != nil {
