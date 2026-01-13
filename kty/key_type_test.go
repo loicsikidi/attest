@@ -10,8 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/tpm2/transport"
-	"github.com/google/go-tpm/tpm2/transport/simulator"
+	"github.com/loicsikidi/go-tpm-kit/tpmtest"
 )
 
 func TestKeyType_String(t *testing.T) {
@@ -219,20 +218,8 @@ func TestKeyType_Scheme(t *testing.T) {
 	}
 }
 
-func setupSimulatedTPM(t *testing.T) transport.TPM {
-	t.Helper()
-
-	sim, err := simulator.OpenSimulator()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { sim.Close() })
-
-	return sim
-}
-
 func TestGetSupportedKeyTypes(t *testing.T) {
-	sim := setupSimulatedTPM(t)
+	sim := tpmtest.OpenSimulator(t)
 
 	supportedTypes, err := GetSupportedKeyTypes(sim)
 	if err != nil {
@@ -253,7 +240,7 @@ func TestGetSupportedKeyTypes(t *testing.T) {
 }
 
 func TestGetSupportedKeyTypesAsync(t *testing.T) {
-	sim := setupSimulatedTPM(t)
+	sim := tpmtest.OpenSimulator(t)
 
 	supportedTypes, err := GetSupportedKeyTypesAsync(sim)
 	if err != nil {
@@ -383,7 +370,7 @@ func TestGetKeyTypeFromPublicKey_UnsupportedTypes(t *testing.T) {
 }
 
 func TestGetKeyTypeFromPublic(t *testing.T) {
-	sim := setupSimulatedTPM(t)
+	sim := tpmtest.OpenSimulator(t)
 
 	supportedTypes, err := GetSupportedKeyTypes(sim)
 	if err != nil {

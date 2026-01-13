@@ -3,17 +3,13 @@ package capabilities
 import (
 	"testing"
 
-	"github.com/google/go-tpm/tpm2/transport/simulator"
+	"github.com/loicsikidi/go-tpm-kit/tpmtest"
 )
 
 func TestReadTpmInfo(t *testing.T) {
-	simulator, err := simulator.OpenSimulator()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer simulator.Close()
+	simulator := tpmtest.OpenSimulator(t)
 
-	if _, err = ReadTpmInfo(simulator); err != nil {
+	if _, err := ReadTpmInfo(simulator); err != nil {
 		t.Fatal(err)
 	}
 }
