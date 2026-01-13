@@ -7,8 +7,7 @@ import (
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/kty"
 	"github.com/loicsikidi/attest/pcr"
-
-	"github.com/google/go-tpm/tpm2/transport/simulator"
+	"github.com/loicsikidi/go-tpm-kit/tpmtest"
 )
 
 func newBank(alg algorithm.Algorithm, size ...int) pcr.Bank {
@@ -28,11 +27,7 @@ func newBank(alg algorithm.Algorithm, size ...int) pcr.Bank {
 }
 
 func TestInfo(t *testing.T) {
-	simulator, err := simulator.OpenSimulator()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer simulator.Close()
+	simulator := tpmtest.OpenSimulator(t)
 
 	got, err := Get(simulator)
 	if err != nil {
