@@ -18,8 +18,10 @@ package info
 import (
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/capabilities"
@@ -71,6 +73,8 @@ type TPMInfo struct {
 	//
 	// This field is set by checking if the starting NV index for EK certificate chains
 	// (0x01c00100) exists as per TCG TPM v2.0 Provisioning Guidance section 2.2.1.5.2.
+	//
+	// EXPERIMENTAL: this field may be removed in a future release.
 	HasEKCertChains bool `json:"hasEKCertChains,omitempty"`
 	// EKCertChains contains the EK certificate chains retrieved from TPM NVRAM.
 	//
@@ -78,7 +82,8 @@ type TPMInfo struct {
 	// chains may be stored in NV indices 0x01c00100 through 0x01c001ff.
 	//
 	// This field will be nil if no certificate chains are found or if the retrieval fails.
-	EKCertChains []*x509.Certificate `json:"ekCertChains,omitempty"`
+	// When marshaled to JSON, the certificates are encoded as a PEM bundle.
+	EKCertChains CertBundle `json:"ekCertChains,omitempty"`
 }
 
 // Get retrieves the TPM information, including vendor, manufacturer,
@@ -95,7 +100,7 @@ func Get(tpm transport.TPM) (*TPMInfo, error) {
 
 	// Check for EK certificate chains
 	hasEKCertChains := HasEKCertChains(tpm)
-	var ekCertChains []*x509.Certificate
+	var ekCertChains CertBundle
 	if hasEKCertChains {
 		ekCertChains, err = GetEKCertChains(tpm)
 		if err != nil {
@@ -145,6 +150,30 @@ func (c *TPMInfo) AvailableBanks() []pcr.Bank {
 		}
 	}
 	return banks
+}
+
+// CertBundle is an alias for a slice of X.509 certificates that marshals to JSON as a PEM bundle.
+type CertBundle []*x509.Certificate
+
+// MarshalJSON marshals the certificate bundle to JSON as a PEM-encoded string.
+func (cb CertBundle) MarshalJSON() ([]byte, error) {
+	if len(cb) == 0 {
+		return nil, nil
+	}
+
+	var pemBundle strings.Builder
+	for _, cert := range cb {
+		if cert == nil {
+			continue
+		}
+		block := &pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: cert.Raw,
+		}
+		pemBundle.Write(pem.EncodeToMemory(block))
+	}
+
+	return json.Marshal(pemBundle.String())
 }
 
 // FirmwareVersion models the TPM firmware version.
