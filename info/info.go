@@ -228,10 +228,6 @@ const (
 	//
 	// Source: TCG TPM v2.0 Provisioning Guidance, section 2.2.1.5.2
 	EKCertChainIndexStart tpm2.TPMHandle = 0x01c00100
-	// EKCertChainIndexEnd is the last NV index for EK certificate chains.
-	//
-	// Source: TCG TPM v2.0 Provisioning Guidance, section 2.2.1.5.2
-	EKCertChainIndexEnd tpm2.TPMHandle = 0x01c001ff
 )
 
 // GetEKCertChains retrieves EK certificate chains from TPM NVRAM indices.
