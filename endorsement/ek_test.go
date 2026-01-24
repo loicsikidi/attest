@@ -260,7 +260,7 @@ func TestEK_AddChain(t *testing.T) {
 
 			if tt.shouldBeNil {
 				if ek.Chain != nil {
-					t.Errorf("AddChain() chain should be nil, got %d certificates", len(*ek.Chain))
+					t.Errorf("AddChain() chain should be nil, got %d certificates", len(ek.Chain))
 				}
 				return
 			}
@@ -269,17 +269,17 @@ func TestEK_AddChain(t *testing.T) {
 				t.Fatalf("AddChain() chain is nil, expected %d certificates", tt.expectedChain)
 			}
 
-			if len(*ek.Chain) != tt.expectedChain {
-				t.Errorf("AddChain() chain length = %d, want %d", len(*ek.Chain), tt.expectedChain)
+			if len(ek.Chain) != tt.expectedChain {
+				t.Errorf("AddChain() chain length = %d, want %d", len(ek.Chain), tt.expectedChain)
 			}
 
 			// Verify the certificates in the chain
 			for i, expectedCN := range tt.expectedCerts {
-				if i >= len(*ek.Chain) {
+				if i >= len(ek.Chain) {
 					t.Errorf("AddChain() missing certificate at index %d", i)
 					continue
 				}
-				cert := (*ek.Chain)[i]
+				cert := ek.Chain[i]
 				if cert.Subject.CommonName != expectedCN {
 					t.Errorf("AddChain() certificate[%d].Subject.CommonName = %s, want %s",
 						i, cert.Subject.CommonName, expectedCN)
