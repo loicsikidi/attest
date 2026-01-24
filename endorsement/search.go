@@ -51,6 +51,7 @@ func (c *GetCertConfig) CheckAndSetDefault() error {
 
 // GetCertificate retrieves a specific EK certificate from the TPM based on the provided template.
 // It returns an [EK] structure containing the certificate and optionally its public key.
+// If EK certificate chains are available in TPM NVRAM, they will be added to the EK structure.
 //
 // Example:
 //
@@ -97,6 +98,16 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 			wrap := fmt.Errorf("EK certificate validation failed for NV index %X: %w", cfg.Template.Index, err)
 			return EK{}, fmt.Errorf("%w: %w", ErrUntrustedEK, wrap)
 		}
+	}
+
+	// Retrieve TPM info to check for EK certificate chains
+	tpmInfo, err := info.Get(tpm)
+	if err != nil {
+		return EK{}, fmt.Errorf("failed to get TPM info: %w", err)
+	}
+
+	if tpmInfo.HasEKCertChains() {
+		ek.AddChain(tpmInfo.EKCertChains)
 	}
 
 	return ek, nil
