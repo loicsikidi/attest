@@ -78,7 +78,7 @@ type EK struct {
 	Certificate *x509.Certificate
 
 	// Chain is the certificate chain for the EK certificate.
-	Chain *[]x509.Certificate
+	Chain []*x509.Certificate
 
 	// For Intel and AMD TPMs, these certificates are hosted at a public URL derived from the
 	// Public key. Clients or servers can perform an HTTP GET to this URL, and
@@ -181,12 +181,12 @@ func (ek *EK) AddChain(pool []*x509.Certificate) {
 	chain := buildChain(ek.Certificate, pool)
 
 	if len(chain) > 0 {
-		ek.Chain = &chain
+		ek.Chain = chain
 	}
 }
 
 // buildChain recursively builds a certificate chain by finding and verifying issuers.
-func buildChain(cert *x509.Certificate, pool []*x509.Certificate) []x509.Certificate {
+func buildChain(cert *x509.Certificate, pool []*x509.Certificate) []*x509.Certificate {
 	// Find the issuer of the current certificate in the pool
 	issuer := findIssuer(cert, pool)
 	if issuer == nil {
@@ -200,7 +200,7 @@ func buildChain(cert *x509.Certificate, pool []*x509.Certificate) []x509.Certifi
 	}
 
 	// Add the issuer to the chain
-	chain := []x509.Certificate{*issuer}
+	chain := []*x509.Certificate{issuer}
 
 	// Continue recursively to find parent issuers
 	parentChain := buildChain(issuer, pool)
