@@ -77,6 +77,9 @@ type EK struct {
 	// Certificate is the EK certificate for TPMs that provide it.
 	Certificate *x509.Certificate
 
+	// Chain is the certificate chain for the EK certificate.
+	Chain *[]x509.Certificate
+
 	// For Intel and AMD TPMs, these certificates are hosted at a public URL derived from the
 	// Public key. Clients or servers can perform an HTTP GET to this URL, and
 	// use [ParseEKCertificate] on the response body.
@@ -159,6 +162,87 @@ func (ek *EK) KeyType() tpmutil.KeyType {
 // KeyFamily returns the KeyFamily of the EK.
 func (ek *EK) KeyFamily() tpmutil.KeyFamily {
 	return tpmutil.AlgIDToKeyFamily(ek.Public.Type)
+}
+
+// AddChain adds a certificate chain to the EK by building it from a pool of certificates.
+// It constructs the chain by recursively finding the issuer of each certificate and
+// verifying the cryptographic signature.
+//
+// Example:
+//
+//	pool := []*x509.Certificate{ekCert, intermediate2, intermediate1, root}
+//	ek.AddChain(pool)
+//	// ek.Chain will contain only [intermediate2, intermediate1] (root is self-signed, ekCert is excluded)
+func (ek *EK) AddChain(pool []*x509.Certificate) {
+	if len(pool) == 0 || ek.Certificate == nil {
+		return
+	}
+
+	chain := buildChain(ek.Certificate, pool)
+
+	if len(chain) > 0 {
+		ek.Chain = &chain
+	}
+}
+
+// buildChain recursively builds a certificate chain by finding and verifying issuers.
+func buildChain(cert *x509.Certificate, pool []*x509.Certificate) []x509.Certificate {
+	// Find the issuer of the current certificate in the pool
+	issuer := findIssuer(cert, pool)
+	if issuer == nil {
+		// No issuer found, end of chain
+		return nil
+	}
+
+	// Check if the issuer is self-signed (root CA) it should not happen but let's be defensive
+	if isSelfSigned(issuer) {
+		return nil
+	}
+
+	// Add the issuer to the chain
+	chain := []x509.Certificate{*issuer}
+
+	// Continue recursively to find parent issuers
+	parentChain := buildChain(issuer, pool)
+	if len(parentChain) > 0 {
+		chain = append(chain, parentChain...)
+	}
+
+	return chain
+}
+
+// findIssuer finds the certificate in the pool that issued the given certificate
+// by verifying the cryptographic signature.
+func findIssuer(cert *x509.Certificate, pool []*x509.Certificate) *x509.Certificate {
+	for _, candidate := range pool {
+		// Skip if this is the same certificate
+		if cert.Equal(candidate) {
+			continue
+		}
+
+		// Check if the candidate could be the issuer
+		if cert.Issuer.String() != candidate.Subject.String() {
+			continue
+		}
+
+		// Verify the signature
+		if err := cert.CheckSignatureFrom(candidate); err == nil {
+			return candidate
+		}
+	}
+	return nil
+}
+
+// isSelfSigned checks if a certificate is self-signed by verifying
+// if it was signed by its own public key.
+func isSelfSigned(cert *x509.Certificate) bool {
+	// First check if Subject == Issuer (quick check)
+	if cert.Subject.String() != cert.Issuer.String() {
+		return false
+	}
+
+	// Verify the signature to be sure
+	return cert.CheckSignatureFrom(cert) == nil
 }
 
 // ReadEKCertFromNVRAM reads the EK certificate from the NVRAM index specified.

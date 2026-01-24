@@ -19,6 +19,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -68,14 +69,6 @@ type TPMInfo struct {
 	// Note: the PCR bank can be empty, if you want to get the available PCR banks,
 	// use AvailableBanks() method.
 	PcrBanks []pcr.Bank `json:"pcrBanks"`
-	// HasEKCertChains is an experimental field that indicates whether the TPM has
-	// EK certificate chains provisioned in NVRAM.
-	//
-	// This field is set by checking if the starting NV index for EK certificate chains
-	// (0x01c00100) exists as per TCG TPM v2.0 Provisioning Guidance section 2.2.1.5.2.
-	//
-	// EXPERIMENTAL: this field may be removed in a future release.
-	HasEKCertChains bool `json:"hasEKCertChains,omitempty"`
 	// EKCertChains contains the EK certificate chains retrieved from TPM NVRAM.
 	//
 	// According to TCG TPM v2.0 Provisioning Guidance section 2.2.1.5.2, EK certificate
@@ -98,14 +91,10 @@ func Get(tpm transport.TPM) (*TPMInfo, error) {
 		return nil, err
 	}
 
-	// Check for EK certificate chains
-	hasEKCertChains := HasEKCertChains(tpm)
-	var ekCertChains CertBundle
-	if hasEKCertChains {
-		ekCertChains, err = GetEKCertChains(tpm)
-		if err != nil {
-			return nil, err
-		}
+	// Try to retrieve EK certificate chains
+	ekCertChains, err := GetEKCertChains(tpm)
+	if err != nil {
+		return nil, err
 	}
 
 	return &TPMInfo{
@@ -121,7 +110,6 @@ func Get(tpm transport.TPM) (*TPMInfo, error) {
 		NVIndexMaxSize:  rawInfo.NVIndexMaxSize(),
 		PcrBanks:        rawInfo.PcrBanks(),
 		KeyTypes:        keyTypes,
-		HasEKCertChains: hasEKCertChains,
 		EKCertChains:    ekCertChains,
 	}, nil
 }
@@ -257,8 +245,11 @@ func GetEKCertChains(tpm transport.TPM) ([]*x509.Certificate, error) {
 		MultiIndex: true,
 	})
 	if err != nil {
-		// Index not defined or not readable
-		return nilSlice, nil
+		if errors.Is(err, tpm2.TPMRCHandle) {
+			// Index not defined or not readable
+			return nilSlice, nil
+		}
+		return nil, err
 	}
 
 	if len(data) == 0 {
@@ -268,29 +259,17 @@ func GetEKCertChains(tpm transport.TPM) ([]*x509.Certificate, error) {
 	return x509.ParseCertificates(data)
 }
 
-// HasEKCertChains checks if the TPM has EK certificate chains provisioned.
-//
-// This is an experimental function that verifies whether the starting NV index
-// for EK certificate chains (0x01c00100) exists in TPM NVRAM as per
-// TCG TPM v2.0 Provisioning Guidance section 2.2.1.5.2.
-//
-// Returns true if the starting index is provisioned, false otherwise.
-// This is a lightweight check that doesn't read or parse the actual certificates.
-//
+// HasEKCertChains indicates if the TPM has EK certificate chains provisioned.
+
 // Example usage:
 //
-//	hasChains, err := info.HasEKCertChains(tpm)
+//	tpmInfo, err := info.Get(tpm)
 //	if err != nil {
-//	    return fmt.Errorf("failed to check EK cert chains: %w", err)
+//	    return fmt.Errorf("failed to get TPM info: %w", err)
 //	}
-//	if hasChains {
+//	if tpmInfo.HasEKCertChains() {
 //	    fmt.Println("TPM has EK certificate chains")
 //	}
-func HasEKCertChains(tpm transport.TPM) bool {
-	_, err := tpmutil.NVRead(tpm, tpmutil.NVReadConfig{Index: EKCertChainIndexStart})
-	if err != nil {
-		// Index not defined or not readable
-		return false
-	}
-	return true
+func (t *TPMInfo) HasEKCertChains() bool {
+	return len(t.EKCertChains) > 0
 }
