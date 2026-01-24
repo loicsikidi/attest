@@ -166,7 +166,7 @@ type SearchCertConfig struct {
 	// SkipPublicMatching skips generating the EK public key from the template.
 	//
 	// Notes:
-	//   * Generating the EK public key can be time-consuming as it involves CreatePrimary operations.
+	//   * Generating the EK public key can be time-consuming as it might involves CreatePrimary operations.
 	//   * It is secure to skip this step if proof of possession is performed indirectly
 	//     later in the attestation flow (e.g., via MakeCredential/ActivateCredential).
 	//     The MakeCredential challenge ensures that the TPM possesses the private key
@@ -175,12 +175,6 @@ type SearchCertConfig struct {
 	SkipPublicMatching bool
 	// SkipCheck skips running [EK.Check] on each certificate found.
 	SkipCheck bool
-	// Info contains TPM information used for fallback certificate URL generation.
-	//
-	// Notes:
-	//   * the field is required only if you want to populate the EK.CertificateURL field when the certificate is not present.
-	//   * this field cannot be used with SkipPublicMatching=true, as generating the certificate URL requires the EK public key.
-	Info *info.TPMInfo
 }
 
 // CheckAndSetDefault validates and sets default values for SearchConfig.
@@ -191,9 +185,6 @@ func (c *SearchCertConfig) CheckAndSetDefault() error {
 	if c.SkipPublicMatching {
 		// If skipping public matching, also skip check as it requires the public key.
 		c.SkipCheck = true
-	}
-	if c.Info != nil && c.SkipPublicMatching {
-		return fmt.Errorf("cannot use Info with SkipPublicMatching=true")
 	}
 	return nil
 }

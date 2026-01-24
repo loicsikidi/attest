@@ -74,9 +74,6 @@ func (t *tpmbase) info() (*info.TPMInfo, error) {
 
 func (t *tpmbase) ekCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error) {
 	cfg := utils.OptionalArg(optionalCfg)
-	if cfg.Info == nil {
-		cfg.Info = t.cacheInfo
-	}
 	return endorsement.SearchCertificates(t.rwc, cfg)
 }
 
