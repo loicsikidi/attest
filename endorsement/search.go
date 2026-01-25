@@ -32,6 +32,8 @@ type GetCertConfig struct {
 	SkipPublicMatching bool
 	// SkipCheck skips running [EK.Check] on the certificate found.
 	SkipCheck bool
+	// Info contains TPM information used for retrieving EK certificate chains (if available).
+	Info *info.TPMInfo
 }
 
 // CheckAndSetDefault validates and sets default values for GetConfig.
@@ -100,10 +102,16 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 		}
 	}
 
-	// Retrieve TPM info to check for EK certificate chains
-	tpmInfo, err := info.Get(tpm)
-	if err != nil {
-		return EK{}, fmt.Errorf("failed to get TPM info: %w", err)
+	var tpmInfo *info.TPMInfo
+	if cfg.Info != nil {
+		tpmInfo = cfg.Info
+	} else {
+		// fallback to a much slower method if TPM info is not provided
+		var err error
+		tpmInfo, err = info.Get(tpm)
+		if err != nil {
+			return EK{}, fmt.Errorf("failed to get TPM info: %w", err)
+		}
 	}
 
 	if tpmInfo.HasEKCertChains() {
@@ -175,6 +183,8 @@ type SearchCertConfig struct {
 	SkipPublicMatching bool
 	// SkipCheck skips running [EK.Check] on each certificate found.
 	SkipCheck bool
+	// Info contains TPM information used for retrieving EK certificate chains (if available).
+	Info *info.TPMInfo
 }
 
 // CheckAndSetDefault validates and sets default values for SearchConfig.
@@ -224,6 +234,7 @@ func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchCertConfig) ([]E
 				Template:           template,
 				SkipPublicMatching: cfg.SkipPublicMatching,
 				SkipCheck:          cfg.SkipCheck,
+				Info:               cfg.Info,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to get certificate for template %X: %w", template.Index, err)
