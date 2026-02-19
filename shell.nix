@@ -8,6 +8,8 @@
     "https://github.com/loicsikidi/nix-shell-toolbox/tarball/main") {
     inherit pkgs;
     hooksConfig = {
+      treefmt.enable = true;
+      gofmt.enable = false;
       gotest.settings.flags = "-race";
     };
   };
