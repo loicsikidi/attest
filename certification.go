@@ -197,7 +197,7 @@ func (p *CertificationParameters) Generate(rnd io.Reader, verifyOpts VerifyOpts,
 // certify uses AK's handle and the passed signature scheme to certify the key
 // with the `hnd` handle.
 func certify(tpm transport.TPM, keyHandle any, akHandle tpmutil.Handle, qualifyingData []byte, scheme tpm2.TPMTSigScheme) (*CertificationParameters, error) {
-	handle, err := tpmutil.ToHandle(tpm, keyHandle)
+	handle, err := tpmutil.ToHandleCloser(tpm, keyHandle)
 	if err != nil {
 		return nil, fmt.Errorf("could not get handle from %T: %w", handle, err)
 	}
