@@ -272,7 +272,7 @@ func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template
 	if err != nil {
 		return nil, fmt.Errorf("CreatePrimary failed: %w", err)
 	}
-	defer ekHandle.Handle() //nolint:errcheck
+	defer ekHandle.Close() //nolint:errcheck
 
 	return ekHandle.Public(), nil
 }
