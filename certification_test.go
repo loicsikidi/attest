@@ -31,9 +31,7 @@ import (
 )
 
 func TestSimTPMCertificationParameters(t *testing.T) {
-	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
-	testCertificationParameters(t, tpm)
+	testCertificationParameters(t, setupSimulatedTPM(t))
 }
 
 // func TestTPMCertificationParameters(t *testing.T) {
@@ -194,9 +192,7 @@ func setupAttestationKey(t *testing.T, tpm *TPM, kty algorithm.Algorithm) *AK {
 }
 
 func TestSimTPMKeyCertification(t *testing.T) {
-	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
-	testKeyCertification(t, tpm)
+	testKeyCertification(t, setupSimulatedTPM(t))
 }
 
 // func TestTPMKeyCertification(t *testing.T) {

@@ -30,21 +30,19 @@ import (
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/endorsement"
 	"github.com/loicsikidi/attest/pcr"
+	"github.com/loicsikidi/go-tpm-kit/tpmtest"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
-	"github.com/google/go-tpm/tpm2/transport/simulator"
 )
 
-func setupSimulatedTPM(t *testing.T) *TPM {
+func setupSimulatedTPM(t *testing.T, optionalCfg ...tpmtest.OpenConfig) *TPM {
 	t.Helper()
 
-	tpm, err := simulator.OpenSimulator()
-	if err != nil {
-		t.Fatal(err)
-	}
-	attestTPM, err := OpenTPM(OpenConfig{Transport: tpm})
+	tpm := tpmtest.OpenSimulator(t, optionalCfg...)
+
+	attestTPM, err := OpenTPM(OpenConfig{Transport: tpm.(transport.TPMCloser)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +51,6 @@ func setupSimulatedTPM(t *testing.T) *TPM {
 
 func TestSimEK(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	eks, err := tpm.EKs()
 	if err != nil {
@@ -65,34 +62,52 @@ func TestSimEK(t *testing.T) {
 }
 
 func TestSimGetEK(t *testing.T) {
-	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
-
 	tests := []struct {
-		name    string
-		cfg     GetEKCertConfig
-		wantErr error
+		name       string
+		cfg        GetEKCertConfig
+		isEmptyTPM bool
+		wantErr    error
 	}{
 		{
-			name:    "RSA cert not found",
-			cfg:     GetEKCertConfig{Template: endorsement.TemplateRSA},
-			wantErr: ErrEKCertNotFound,
+			name:       "RSA cert not found",
+			cfg:        GetEKCertConfig{Template: endorsement.TemplateRSA},
+			isEmptyTPM: true,
+			wantErr:    ErrEKCertNotFound,
 		},
 		{
-			name:    "ECC cert not found",
+			name:       "ECC cert not found",
+			cfg:        GetEKCertConfig{Template: endorsement.TemplateECC},
+			isEmptyTPM: true,
+			wantErr:    ErrEKCertNotFound,
+		},
+		{
+			name:    "ECC cert found",
 			cfg:     GetEKCertConfig{Template: endorsement.TemplateECC},
-			wantErr: ErrEKCertNotFound,
+			wantErr: nil,
+		},
+		{
+			name:    "RSA cert found",
+			cfg:     GetEKCertConfig{Template: endorsement.TemplateRSA},
+			wantErr: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := tpm.EK(tt.cfg)
-			if err == nil {
-				t.Fatal("EK() expected error, got nil")
+			cfg := tpmtest.OpenConfig{
+				SkipProvisioning: tt.isEmptyTPM,
 			}
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("EK() error = %v, wantErr %v", err, tt.wantErr)
+			tpm := setupSimulatedTPM(t, cfg)
+
+			got, err := tpm.EK(tt.cfg)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("EK() error = %v, wantErr %v", err, tt.wantErr)
+				}
+			} else {
+				if got.Certificate == nil {
+					t.Errorf("EK() = %v, want non-nil Certificate", got)
+				}
 			}
 		})
 	}
@@ -100,7 +115,6 @@ func TestSimGetEK(t *testing.T) {
 
 func TestSimPersistedEKs(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	// Initially, no EKs should be persisted
 	persistedEKs := tpm.PersistedEKs()
@@ -179,7 +193,6 @@ func TestSimPersistedEKs(t *testing.T) {
 
 func TestSimInfo(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	if _, err := tpm.Info(); err != nil {
 		t.Errorf("tpm.Info() failed: %v", err)
@@ -188,7 +201,6 @@ func TestSimInfo(t *testing.T) {
 
 func TestSimAKCreateAndLoad(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 	for _, test := range []struct {
 		name string
 		opts []AKConfig
@@ -250,7 +262,6 @@ func TestSimActivateCredentialWithEK(t *testing.T) {
 
 func testActivateCredential(t *testing.T, useEK bool) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	EKs, err := tpm.EKs()
 	if err != nil {
@@ -295,7 +306,6 @@ func testActivateCredential(t *testing.T, useEK bool) {
 
 func TestParseAKPublic(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	ak, err := tpm.NewAK()
 	if err != nil {
@@ -419,7 +429,6 @@ func TestSimPersistenceECCSRK(t *testing.T) {
 
 func testPersistenceSRK(t *testing.T, parentConfig ParentKeyConfig) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	_, err := tpm2.ReadPublic{
 		ObjectHandle: parentConfig.Handle,
@@ -446,7 +455,6 @@ func testPersistenceSRK(t *testing.T, parentConfig ParentKeyConfig) {
 
 func TestSimPersistenceEK(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	eks, err := tpm.EKs()
 	if err != nil {
@@ -482,7 +490,6 @@ func TestSimPersistenceEK(t *testing.T) {
 
 func TestSignMsg(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	type args struct {
 		cfg  []AKConfig
@@ -590,7 +597,6 @@ func verifyECDSA(t *testing.T, msgDigest, sig []byte, pub crypto.PublicKey) {
 
 func TestSimQuote(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
-	defer tpm.Close()
 
 	debugPCR := uint(16)
 	selection := []int{15, int(debugPCR)}
