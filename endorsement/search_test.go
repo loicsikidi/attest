@@ -1,46 +1,15 @@
-//go:build linux && localtest
-
 package endorsement
 
 import (
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/tpm2/transport"
-	"github.com/google/go-tpm/tpm2/transport/linuxtpm"
+	"github.com/loicsikidi/go-tpm-kit/tpmtest"
 )
-
-const (
-	defaultTPMPath = "/dev/tpmrm0"
-)
-
-// openTPM opens a TPM device for testing.
-// It uses TPM_PATH environment variable if set, otherwise falls back to defaultTPMPath.
-// The TPM is automatically closed when the test completes via t.Cleanup.
-func openTPM(t *testing.T) transport.TPM {
-	t.Helper()
-
-	tpmPath := os.Getenv("TPM_PATH")
-	if tpmPath == "" {
-		tpmPath = defaultTPMPath
-	}
-
-	tpm, err := linuxtpm.Open(tpmPath)
-	if err != nil {
-		t.Fatalf("Failed to open TPM at %s: %v", tpmPath, err)
-	}
-
-	t.Cleanup(func() {
-		tpm.Close()
-	})
-
-	return tpm
-}
 
 func TestSearchAvailableCertificates_Integration(t *testing.T) {
-	tpm := openTPM(t)
+	tpm := tpmtest.OpenSimulator(t)
 
 	t.Run("search all key types", func(t *testing.T) {
 		results := SearchAvailableCertificates(tpm)
@@ -92,7 +61,7 @@ func TestSearchAvailableCertificates_Integration(t *testing.T) {
 }
 
 func TestGetCertificate_Integration(t *testing.T) {
-	tpm := openTPM(t)
+	tpm := tpmtest.OpenSimulator(t)
 
 	t.Run("get RSA certificate with validation", func(t *testing.T) {
 		templates := SearchAvailableCertificates(tpm, tpm2.TPMAlgRSA)
@@ -205,7 +174,7 @@ func TestGetCertificate_Integration(t *testing.T) {
 }
 
 func TestSearchCertificates_Integration(t *testing.T) {
-	tpm := openTPM(t)
+	tpm := tpmtest.OpenSimulator(t)
 
 	t.Run("search all certificates with validation", func(t *testing.T) {
 		eks, err := SearchCertificates(tpm)
@@ -280,7 +249,7 @@ func TestSearchCertificates_Integration(t *testing.T) {
 }
 
 func TestSearchPersistedTemplates_Integration(t *testing.T) {
-	tpm := openTPM(t)
+	tpm := tpmtest.OpenSimulator(t)
 
 	t.Run("search persisted templates", func(t *testing.T) {
 		templates := SearchPersistedTemplates(tpm)
