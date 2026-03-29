@@ -15,6 +15,7 @@ type TestCase[T any] struct {
 }
 
 func TestOptionalArg(t *testing.T) {
+	t.Parallel()
 	tint := []TestCase[int]{
 		{
 			name: "argument provided",
@@ -60,6 +61,7 @@ func TestOptionalArg(t *testing.T) {
 func testOptionalArg[T comparable](t *testing.T, tests []TestCase[T]) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := utils.OptionalArg(tt.args)
 			if got != tt.want {
 				t.Errorf("OptionalArg() = %v, want %v", got, tt.want)
@@ -70,6 +72,7 @@ func testOptionalArg[T comparable](t *testing.T, tests []TestCase[T]) {
 func testOptionalArgWithSlice[S ~[]E, E comparable](t *testing.T, tests []TestCase[S]) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := utils.OptionalArg(tt.args)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("OptionalArg() = %v, want %v", got, tt.want)
