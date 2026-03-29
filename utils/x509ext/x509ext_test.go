@@ -4,12 +4,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/pem"
 	"testing"
 
+	"github.com/loicsikidi/attest/internal/utils"
 	"github.com/loicsikidi/attest/utils/oid"
 	tpmtest "github.com/loicsikidi/attest/utils/testutil/ek"
-	"github.com/loicsikidi/sentinel"
 	"github.com/nalgeon/be"
 )
 
@@ -44,7 +43,7 @@ func TestParseEKCert(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO(lsi): migrate to commons/crypto/pemutil
-			cert, err := parseCertificate(tt.pemBytes)
+			cert, err := utils.ParseCertificate(tt.pemBytes)
 			be.Err(t, err, nil)
 
 			san, err := GetSubjectAltNameFromCertificate(cert)
@@ -59,28 +58,6 @@ func TestParseEKCert(t *testing.T) {
 			be.Equal(t, asn1.ObjectIdentifier(oid.EKCertificate), cert.UnknownExtKeyUsage[0])
 		})
 	}
-}
-
-// parseCertificate extracts the first certificate from the given pem.
-func parseCertificate(pemData []byte) (*x509.Certificate, error) {
-	var block *pem.Block
-	for len(pemData) > 0 {
-		block, pemData = pem.Decode(pemData)
-		if block == nil {
-			return nil, sentinel.BadParameter("error decoding pem block")
-		}
-		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
-			continue
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, sentinel.Wrap(err)
-		}
-		return cert, nil
-	}
-
-	return nil, sentinel.BadParameter("error parsing certificate: no certificate found")
 }
 
 func TestMarshalTpmSpecification(t *testing.T) {
