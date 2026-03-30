@@ -16,20 +16,18 @@
 package endorsement
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/asn1"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/url"
 
-	tpmcrypto "github.com/loicsikidi/go-tpm-kit/tpmcrypto"
+	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-tpm/tpm2"
@@ -38,9 +36,9 @@ import (
 
 const (
 	manufacturerIntel     = "INTC" // Intel's ASCII manufacturer ID
-	IntelEKCertServiceURL = "https://ekop.intel.com/ekcertservice/"
+	IntelEKCertServiceURL = tpmcrypto.IntelEKCertServiceURL
 	manufacturerAMD       = "AMD" // AMD's ASCII manufacturer ID
-	AmdEKCertServiceURL   = "https://ftpm.amd.com/pki/aia/"
+	AmdEKCertServiceURL   = tpmcrypto.AmdEKCertServiceURL
 )
 
 // Predefined handles for EKs as per TCG specification.
@@ -67,6 +65,9 @@ var HandleByType = map[tpm2.TPMAlgID]tpm2.TPMHandle{
 	tpm2.TPMAlgRSA: RSAHandle,
 	tpm2.TPMAlgECC: ECCHandle,
 }
+
+// ParseEKCertificate parses a raw DER encoded EK certificate blob.
+var ParseEKCertificate = tpmcrypto.ParseEKCertificate
 
 // EK is a burned-in endorcement key bound to a TPM. This optionally contains
 // a certificate that can chain to the TPM manufacturer.
@@ -256,44 +257,6 @@ func ReadEKCertFromNVRAM(tpm transport.TPM, index tpm2.TPMHandle) (*x509.Certifi
 		return nil, fmt.Errorf("failed reading EK cert: %w", err)
 	}
 	return ParseEKCertificate(ekCert)
-}
-
-// ParseEKCertificate parses a raw DER encoded EK certificate blob.
-func ParseEKCertificate(ekCert []byte) (*x509.Certificate, error) {
-	var wasWrapped bool
-
-	// TCG PC Specific Implementation section 7.3.2 specifies
-	// a prefix when storing a certificate in NVRAM. We look
-	// for and unwrap the certificate if its present.
-	if len(ekCert) > 5 && bytes.Equal(ekCert[:3], []byte{0x10, 0x01, 0x00}) {
-		certLen := int(binary.BigEndian.Uint16(ekCert[3:5]))
-		if len(ekCert) < certLen+5 {
-			return nil, fmt.Errorf("parsing nvram header: ekCert size %d smaller than specified cert length %d", len(ekCert), certLen)
-		}
-		ekCert = ekCert[5 : 5+certLen]
-		wasWrapped = true
-	}
-
-	// If the cert parses fine without any changes, we are G2G.
-	if c, err := x509.ParseCertificate(ekCert); err == nil {
-		return c, nil
-	}
-	// There might be trailing nonsense in the cert, which Go
-	// does not parse correctly. As ASN1 data is TLV encoded, we should
-	// be able to just get the certificate, and then send that to Go's
-	// certificate parser.
-	var cert struct {
-		Raw asn1.RawContent
-	}
-	if _, err := asn1.UnmarshalWithParams(ekCert, &cert, "lax"); err != nil {
-		return nil, fmt.Errorf("asn1.Unmarshal() failed, wasWrapped=%v: %w", wasWrapped, err)
-	}
-
-	c, err := x509.ParseCertificate(cert.Raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse certificate: %w", err)
-	}
-	return c, nil
 }
 
 // EkCertURL returns the URL where the EK certificate can be retrieved.

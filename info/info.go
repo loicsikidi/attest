@@ -27,8 +27,8 @@ import (
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/capabilities"
 	"github.com/loicsikidi/attest/kty"
-	"github.com/loicsikidi/attest/manufacturer"
 	"github.com/loicsikidi/attest/pcr"
+	"github.com/loicsikidi/go-tpm-kit/manufacturer"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-tpm/tpm2"
