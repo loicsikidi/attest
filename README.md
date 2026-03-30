@@ -16,7 +16,7 @@ Improvements over the original repo:
  * Migrate from `go-tpm/lecacy/tpm2` to `go-tpm/tpm2` in order to use "TPMDirect" API **ONLY**
  * Add support for ECC attestation keys
    * *Note: ECC support is now available in the upstream repo as well, but it wasn't the case when I started working on it.*
- * Refactor the code to make it more modular (e.g. `algorithm`, `capabilities`, `manufacturer`, etc. sub-packages)
+ * Refactor the code to make it more modular (e.g. `algorithm`, `capabilities`, `pcrs`, etc. sub-packages)
  * Enrich `TPMInfo` struct with more fields (e.g. `Manufacturer`, `Model`, `FirmwareVersion`, etc.)
  * Some new features (see [Release notes](https://github.com/loicsikidi/attest/releases) for more details)
 
