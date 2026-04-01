@@ -199,6 +199,41 @@ func TestSimInfo(t *testing.T) {
 	}
 }
 
+func testAKCreateAndLoad(t *testing.T, tpm *TPM, akOpts []AKConfig, parentCfg *ParentKeyConfig) {
+	t.Helper()
+
+	ak, err := tpm.NewAK(akOpts...)
+	if err != nil {
+		t.Fatalf("NewAK() failed: %v", err)
+	}
+
+	enc, err := ak.Marshal()
+	if err != nil {
+		ak.Close(tpm)
+		t.Fatalf("ak.Marshal() failed: %v", err)
+	}
+	if err := ak.Close(tpm); err != nil {
+		t.Fatalf("ak.Close() failed: %v", err)
+	}
+
+	var loaded *AK
+	if parentCfg == nil {
+		loaded, err = tpm.LoadAK(enc)
+	} else {
+		loaded, err = tpm.LoadAKWithParent(enc, *parentCfg)
+	}
+	if err != nil {
+		t.Fatalf("LoadAK() failed: %v", err)
+	}
+	defer loaded.Close(tpm)
+
+	k1, k2 := ak.ak.(*wrappedKey), loaded.ak.(*wrappedKey)
+
+	if !reflect.DeepEqual(k1.public, k2.public) {
+		t.Error("Public keys do not match")
+	}
+}
+
 func TestSimAKCreateAndLoad(t *testing.T) {
 	tpm := setupSimulatedTPM(t)
 	for _, test := range []struct {
@@ -223,31 +258,46 @@ func TestSimAKCreateAndLoad(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ak, err := tpm.NewAK(test.opts...)
+			testAKCreateAndLoad(t, tpm, test.opts, nil)
+		})
+	}
+}
+
+func TestSimAKCreateAndLoadWithCustomParent(t *testing.T) {
+	tpm := setupSimulatedTPM(t)
+
+	tests := []struct {
+		name     string
+		template endorsement.Template
+	}{
+		{
+			name:     "AK under RSA EK",
+			template: endorsement.TemplateRSA,
+		},
+		{
+			name:     "AK under ECC EK",
+			template: endorsement.TemplateECC,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ekHandle, err := tpmutil.CreatePrimary(tpm.tpm.(*tpmbase).rwc, tpmutil.CreatePrimaryConfig{
+				PrimaryHandle: tpm2.TPMRHEndorsement,
+				InPublic:      tt.template.Public,
+				Auth:          tpmutil.NoAuth,
+			})
 			if err != nil {
-				t.Fatalf("NewAK() failed: %v", err)
+				t.Fatalf("CreatePrimary failed: %v", err)
+			}
+			defer ekHandle.Close()
+
+			parentCfg := &ParentKeyConfig{
+				Handle: ekHandle,
+				Auth:   tpm2.Policy(tpm2.TPMAlgSHA256, 16, tpmutil.EkPolicyCallback),
 			}
 
-			enc, err := ak.Marshal()
-			if err != nil {
-				ak.Close(tpm)
-				t.Fatalf("ak.Marshal() failed: %v", err)
-			}
-			if err := ak.Close(tpm); err != nil {
-				t.Fatalf("ak.Close() failed: %v", err)
-			}
-
-			loaded, err := tpm.LoadAK(enc)
-			if err != nil {
-				t.Fatalf("LoadAK() failed: %v", err)
-			}
-			defer loaded.Close(tpm)
-
-			k1, k2 := ak.ak.(*wrappedKey), loaded.ak.(*wrappedKey)
-
-			if !reflect.DeepEqual(k1.public, k2.public) {
-				t.Error("Public keys do not match")
-			}
+			testAKCreateAndLoad(t, tpm, []AKConfig{{Parent: parentCfg}}, parentCfg)
 		})
 	}
 }
@@ -421,8 +471,8 @@ func TestSimPersistenceSRK(t *testing.T) {
 
 func TestSimPersistenceECCSRK(t *testing.T) {
 	parentConfig := ParentKeyConfig{
-		Algorithm: algorithm.ECDSA,
-		Handle:    0x81000002,
+		SRKAlgorithm: algorithm.ECDSA,
+		SRKHandle:    0x81000002,
 	}
 	testPersistenceSRK(t, parentConfig)
 }
@@ -431,7 +481,7 @@ func testPersistenceSRK(t *testing.T, parentConfig ParentKeyConfig) {
 	tpm := setupSimulatedTPM(t)
 
 	_, err := tpm2.ReadPublic{
-		ObjectHandle: parentConfig.Handle,
+		ObjectHandle: parentConfig.SRKHandle,
 	}.Execute(tpm.tpm.(*tpmbase).rwc)
 	if err == nil {
 		t.Fatalf("skrhandle shouldn't exist")
@@ -441,12 +491,12 @@ func testPersistenceSRK(t *testing.T, parentConfig ParentKeyConfig) {
 	if err != nil {
 		t.Fatalf("getStorageRootKeyHandle() failed: %v", err)
 	}
-	if tpm2.TPMHandle(srkHnd.HandleValue()) != parentConfig.Handle {
-		t.Fatalf("bad SRK-equivalent handle: got 0x%x, wanted 0x%x", srkHnd, parentConfig.Handle)
+	if tpm2.TPMHandle(srkHnd.HandleValue()) != parentConfig.SRKHandle {
+		t.Fatalf("bad SRK-equivalent handle: got 0x%x, wanted 0x%x", srkHnd, parentConfig.SRKHandle)
 	}
 
 	_, err = tpm2.ReadPublic{
-		ObjectHandle: parentConfig.Handle,
+		ObjectHandle: parentConfig.SRKHandle,
 	}.Execute(tpm.tpm.(*tpmbase).rwc)
 	if err != nil {
 		t.Fatalf("skrhandle should exist")

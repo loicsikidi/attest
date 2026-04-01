@@ -116,11 +116,18 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, err
 	}
-	srkHandle, err := t.getStorageRootKeyHandle(*opts.Parent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get SRK handle: %w", err)
+
+	var parentHandle tpmutil.Handle
+	if opts.Parent.Handle != nil {
+		parentHandle = opts.Parent.Handle
+	} else {
+		var err error
+		parentHandle, err = t.getStorageRootKeyHandle(*opts.Parent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get SRK handle: %w", err)
+		}
+		defer tpmutil.CloseHandle(t.tpm(), parentHandle) //nolint:errcheck // ignore error on close
 	}
-	defer tpmutil.CloseHandle(t.tpm(), srkHandle) //nolint:errcheck // ignore error on close
 
 	var akTemplate tpm2.TPMTPublic
 	// The default is RSA.
@@ -135,7 +142,8 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 	}
 
 	akCreateResult, err := tpmutil.CreateWithResult(t.rwc, tpmutil.CreateConfig{
-		ParentHandle: srkHandle,
+		ParentHandle: parentHandle,
+		ParentAuth:   opts.Parent.Auth,
 		InPublic:     akTemplate,
 	})
 	if err != nil {
@@ -148,7 +156,8 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 	}
 
 	akHandle, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
-		ParentHandle: tpmutil.NewHandle(srkHandle),
+		ParentHandle: parentHandle,
+		ParentAuth:   opts.Parent.Auth,
 		InPublic:     akCreateResult.OutPublic,
 		InPrivate:    akCreateResult.OutPrivate,
 	})
@@ -195,8 +204,8 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 
 func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (tpmutil.Handle, error) {
 	return tpmutil.GetSRKHandle(t.rwc, tpmutil.ParentConfig{
-		Handle:    tpmutil.NewHandle(parent.Handle),
-		KeyFamily: tpmutil.AlgIDToKeyFamily(tpm2.TPMAlgID(parent.Algorithm)),
+		Handle:    tpmutil.NewHandle(parent.SRKHandle),
+		KeyFamily: tpmutil.AlgIDToKeyFamily(tpm2.TPMAlgID(parent.SRKAlgorithm)),
 	})
 }
 
@@ -254,11 +263,17 @@ func (t *tpmbase) deserializeAndLoad(opaqueBlob []byte, parent ParentKeyConfig) 
 		return nil, nil, fmt.Errorf("unsupported key encoding: %s", sKey.Encoding.String())
 	}
 
-	srkHandle, err := t.getStorageRootKeyHandle(parent)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get SRK handle: %w", err)
+	var parentHandle tpmutil.Handle
+	if parent.Handle != nil {
+		parentHandle = parent.Handle
+	} else {
+		var err error
+		parentHandle, err = t.getStorageRootKeyHandle(parent)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get SRK handle: %w", err)
+		}
+		defer tpmutil.CloseHandle(t.tpm(), parentHandle) //nolint:errcheck // ignore error on close
 	}
-	defer tpmutil.CloseHandle(t.tpm(), srkHandle) //nolint:errcheck // ignore error on close
 
 	pub, err := tpm2.Unmarshal[tpm2.TPM2BPublic](sKey.Public)
 	if err != nil {
@@ -270,7 +285,8 @@ func (t *tpmbase) deserializeAndLoad(opaqueBlob []byte, parent ParentKeyConfig) 
 	}
 
 	handle, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
-		ParentHandle: srkHandle,
+		ParentHandle: parentHandle,
+		ParentAuth:   parent.Auth,
 		InPublic:     *pub,
 		InPrivate:    *priv,
 	})
