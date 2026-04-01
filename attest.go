@@ -84,7 +84,7 @@ func probeTpm(base tpmBase) error {
 	// behind the scenes, this also caches the TPM info for later use
 	_, err := base.info()
 	if err != nil {
-		base.close() // nolint:errcheck
+		base.close() //nolint:errcheck
 		return fmt.Errorf("failed to probe TPM at startup: %w", err)
 	}
 	return nil
