@@ -37,8 +37,9 @@ import (
 
 var (
 	defaultParentConfig = ParentKeyConfig{
-		Algorithm: algorithm.RSA,
-		Handle:    0x81000001,
+		SRKAlgorithm: algorithm.RSA,
+		SRKHandle:    0x81000001,
+		Auth:         tpmutil.NoAuth,
 	}
 	// ErrTPMNotAvailable is returned in response to OpenTPM() when
 	// either no TPM is available, or a TPM of the requested version
@@ -92,8 +93,24 @@ func probeTpm(base tpmBase) error {
 
 // ParentKeyConfig describes the Storage Root Key that is used
 type ParentKeyConfig struct {
-	Algorithm algorithm.Algorithm // RSA or ECC/ECDSA
-	Handle    tpm2.TPMHandle
+	SRKAlgorithm algorithm.Algorithm // RSA or ECC/ECDSA
+	SRKHandle    tpm2.TPMHandle
+	// Handle allows to specify a custom key handle.
+	//
+	// WARNING: it's the responsibility of the caller
+	// to manage the key lifecycle appropriately
+	// (i.e., load and close).
+	//
+	// Notes:
+	//   - If not set, the SRKHandle will be used instead.
+	//   - Handle only applies to AK keys not Application keys
+	//     (at least for now).
+	// Default: nil
+	Handle tpmutil.Handle
+	// Auth is the authorization session for the handle key.
+	//
+	// Default: [NoAuth].
+	Auth tpm2.Session
 }
 
 type ak interface {
