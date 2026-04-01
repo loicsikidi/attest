@@ -120,6 +120,7 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get SRK handle: %w", err)
 	}
+	defer tpmutil.CloseHandle(t.tpm(), srkHandle) //nolint:errcheck // ignore error on close
 
 	var akTemplate tpm2.TPMTPublic
 	// The default is RSA.
@@ -193,7 +194,7 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 }
 
 func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (tpmutil.Handle, error) {
-	return tpmutil.GetSKRHandle(t.rwc, tpmutil.ParentConfig{
+	return tpmutil.GetSRKHandle(t.rwc, tpmutil.ParentConfig{
 		Handle:    tpmutil.NewHandle(parent.Handle),
 		KeyFamily: tpmutil.AlgIDToKeyFamily(tpm2.TPMAlgID(parent.Algorithm)),
 	})
@@ -257,6 +258,7 @@ func (t *tpmbase) deserializeAndLoad(opaqueBlob []byte, parent ParentKeyConfig) 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get SRK handle: %w", err)
 	}
+	defer tpmutil.CloseHandle(t.tpm(), srkHandle) //nolint:errcheck // ignore error on close
 
 	pub, err := tpm2.Unmarshal[tpm2.TPM2BPublic](sKey.Public)
 	if err != nil {
@@ -319,6 +321,7 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfi
 	if err != nil {
 		return nil, fmt.Errorf("cannot create key: %v", err)
 	}
+	defer tpmutil.CloseHandle(t.tpm(), parentHnd) //nolint:errcheck // ignore error on close
 
 	pub := createResult.PublicArea()
 	createData := createResult.CreationInfo()
@@ -327,7 +330,7 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfi
 	}
 
 	keyHnd, err := tpmutil.Load(t.rwc, tpmutil.LoadConfig{
-		ParentHandle: tpmutil.NewHandle(parentHnd),
+		ParentHandle: parentHnd,
 		InPublic:     createResult.OutPublic,
 		InPrivate:    createResult.OutPrivate,
 	})
@@ -369,7 +372,7 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfi
 	}, nil
 }
 
-func createKey(t *tpmbase, optionalCfg ...KeyConfig) (handle, *tpmutil.CreateResult, error) {
+func createKey(t *tpmbase, optionalCfg ...KeyConfig) (tpmutil.Handle, *tpmutil.CreateResult, error) {
 	opts := utils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, nil, err
