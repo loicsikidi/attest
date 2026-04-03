@@ -19,21 +19,18 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"math/big"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/endorsement"
+	"github.com/loicsikidi/attest/internal/testutil"
 	"github.com/loicsikidi/attest/kty"
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/go-tpm-kit/tpmcert/ekca"
@@ -752,42 +749,6 @@ func readPCR(t *testing.T, tpm transport.TPM, pcrIndex uint) []byte {
 	return pcrReadRsp.PCRValues.Digests[0].Buffer
 }
 
-// createTPMCertificate creates a self-signed certificate for a TPM key for testing purposes.
-func createTPMCertificate(t *testing.T, pub crypto.PublicKey) *x509.Certificate {
-	t.Helper()
-
-	signerKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("failed to generate ECDSA key: %v", err)
-	}
-
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			CommonName:   "Test TPM Certificate",
-			Organization: []string{"Test Organization"},
-		},
-		NotBefore:             time.Now().Add(-1 * time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-		IsCA:                  false,
-	}
-
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, pub, signerKey)
-	if err != nil {
-		t.Fatalf("failed to create certificate: %v", err)
-	}
-
-	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		t.Fatalf("failed to parse certificate: %v", err)
-	}
-
-	return cert
-}
-
 func TestSimAKPersistAndLoad(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -850,7 +811,7 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 				chain = []*x509.Certificate{ca.Intermediate, ca.Root}
 			}
 
-			cert := createTPMCertificate(t, ak.Public())
+			cert := testutil.CreateTPMCertificate(t, testutil.CertConfig{Pub: ak.Public()})
 			originalPub := ak.Public()
 
 			persistCfg := PersistConfig{
@@ -1001,7 +962,7 @@ func TestSimKeyPersistAndLoad(t *testing.T) {
 				chain = []*x509.Certificate{ca.Intermediate, ca.Root}
 			}
 
-			cert := createTPMCertificate(t, key.Public())
+			cert := testutil.CreateTPMCertificate(t, testutil.CertConfig{Pub: key.Public()})
 			originalPub := key.Public()
 
 			persistCfg := PersistConfig{

@@ -35,7 +35,7 @@ type key interface {
 	close(tpmBase) error
 	marshal() ([]byte, error)
 	persist(tpmBase, PersistConfig) error
-	certificationParameters() CertificationParameters
+	certificationParameters(...*AK) CertificationParameters
 	sign(tpmBase, []byte, crypto.PublicKey, crypto.SignerOpts) ([]byte, error)
 	decrypt(tpmBase, []byte) ([]byte, error)
 	blobs() ([]byte, []byte, error)
@@ -130,8 +130,8 @@ func (k *Key) Marshal() ([]byte, error) {
 
 // CertificationParameters returns information about the key required to
 // verify key certification.
-func (k *Key) CertificationParameters() CertificationParameters {
-	return k.key.certificationParameters()
+func (k *Key) CertificationParameters(optionalAK ...*AK) CertificationParameters {
+	return k.key.certificationParameters(optionalAK...)
 }
 
 // Blobs returns public and private blobs to be used by tpm2.Load().

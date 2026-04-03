@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/rand"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -30,8 +31,8 @@ import (
 	"github.com/google/go-tpm/tpm2/transport"
 )
 
-// CertificationParameters encapsulates the inputs for certifying an application key.
-// Only TPM 2.0 is supported at this point.
+// CertificationParameters encapsulates the inputs for certifying a key.
+// The key can be an application key or a storage key (i.e, SKR).
 type CertificationParameters struct {
 	// Public represents the properties of the application key.
 	// The data is represented as a TPMT_PUBLIC structure.
@@ -42,46 +43,15 @@ type CertificationParameters struct {
 	// CreateSignature represents a signature of the CreateAttestation structure.
 	// It is encoded as a TPMT_SIGNATURE structure.
 	CreateSignature tpm2.TPMTSignature
+	// Certificate represents the X.509 certificate associated with the attestation
+	// key (AK).
+	// This certificate attests to the trustworthiness of the AK.
+	Certificate *x509.Certificate
 }
 
-// VerifyOpts specifies options for the key certification's verification.
-type VerifyOpts struct {
-	// Public is the public key used to verify key ceritification.
-	Public crypto.PublicKey
-	// Hash is the hash function used for signature verification. It can be
-	// extracted from the properties of the certifying key.
-	Hash crypto.Hash
-}
-
-// ActivateOpts specifies options for the key certification's challenge generation.
-type ActivateOpts struct {
-	// EK, the endorsement key, describes an asymmetric key whose
-	// private key is permanently bound to the TPM.
-	//
-	// Activation will verify that the provided EK is held on the same
-	// TPM as the key we're certifying. However, it is the caller's responsibility to
-	// ensure the EK they provide corresponds to the the device which
-	// they are trying to associate the certified key with.
-	//
-	// Note; LabeledEncapsulationKey interface is a representation of a public key
-	EK tpm2.LabeledEncapsulationKey
-	// VerifierKeyNameDigest is the name digest of the public key we're using to
-	// verify the certification of the tpm-generated key being activated.
-	// The verifier key (usually the AK) that owns this digest should be the same
-	// key used in VerifyOpts.Public.
-	// Use tpm2.ObjectName() to produce the digest for a provided key.
-	VerifierKeyNameDigest *tpm2.TPM2BName
-}
-
-// CertifyOpts specifies options for the key's certification.
-type CertifyOpts struct {
-	// QualifyingData is the user provided qualifying data.
-	QualifyingData []byte
-}
-
-// NewActivateOpts creates options for use in generating an activation challenge for a certified key.
+// NewActivateConfig creates options for use in generating an activation challenge for a certified key.
 // The computed hash is the name digest of the public key used to verify the certification of our key.
-func NewActivateOpts(verifierPubKey *tpm2.TPMTPublic, ek *tpm2.TPMTPublic) (*ActivateOpts, error) {
+func NewActivateConfig(verifierPubKey *tpm2.TPMTPublic, ek *tpm2.TPMTPublic) (*ActivateConfig, error) {
 	pubName, err := tpm2.ObjectName(verifierPubKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to resolve a tpm2.Public Name struct from the given public key struct: %w", err)
@@ -92,68 +62,10 @@ func NewActivateOpts(verifierPubKey *tpm2.TPMTPublic, ek *tpm2.TPMTPublic) (*Act
 		return nil, fmt.Errorf("unable to import encapsulation key: %w", err)
 	}
 
-	return &ActivateOpts{
+	return &ActivateConfig{
 		EK:                    key,
 		VerifierKeyNameDigest: pubName,
 	}, nil
-}
-
-// Verify validates the TPM2-produced certification parameters checking whether:
-//
-//   - the key length is crypto secure
-//   - the attestation parameters matched the attested key
-//   - the key was TPM-generated and resides within TPM
-//   - the key cannot be duplicated outside the TPM
-//   - the key can sign/decrypt outside-TPM objects
-//   - the signature is successfuly verified against the passed public key
-func (p *CertificationParameters) Verify(opts VerifyOpts) error {
-	var (
-		pub = p.Public
-		att = p.CreateAttestation
-	)
-
-	if att.Type != tpm2.TPMSTAttestCertify {
-		return fmt.Errorf("attestation does not apply to certification data, got tag %#x", att.Type)
-	}
-
-	if err := tpmcrypto.ValidatePublicKey(*pub); err != nil {
-		return err
-	}
-
-	// Make sure the key has sane parameters (e.g., attestation can be faked if an AK
-	// can be used for arbitrary signatures).
-	if err := att.Magic.Check(); err != nil {
-		return errors.New("creation attestation was not produced by a TPM")
-	}
-	if !pub.ObjectAttributes.FixedTPM {
-		return errors.New("provided key is exportable")
-	}
-	if pub.ObjectAttributes.Restricted {
-		return errors.New("provided key is restricted")
-	}
-	if !pub.ObjectAttributes.FixedParent {
-		return errors.New("provided key can be duplicated to a different parent")
-	}
-	if !pub.ObjectAttributes.SensitiveDataOrigin {
-		return errors.New("provided key is not created by TPM")
-	}
-
-	// Verify the attested creation name matches what is computed from
-	// the public key.
-	certifyInfo, err := att.Attested.Certify()
-	if err != nil {
-		return fmt.Errorf("could not decode certify info: %w", err)
-	}
-	pubName, err := tpm2.ObjectName(p.Public)
-	if err != nil {
-		return fmt.Errorf("could not compute public key name: %w", err)
-	}
-
-	if !bytes.Equal(certifyInfo.Name.Buffer, pubName.Buffer) {
-		return errors.New("certification refers to a different key")
-	}
-
-	return tpmcrypto.VerifySignature(opts.Public, p.CreateSignature, opts.Hash, tpm2.Marshal(att))
 }
 
 // Generate returns a credential activation challenge, which can be provided
@@ -164,7 +76,7 @@ func (p *CertificationParameters) Verify(opts VerifyOpts) error {
 // as result of calling ActivateCredential() matches the secret returned here.
 // The caller should use subtle.ConstantTimeCompare to avoid potential
 // timing attack vectors.
-func (p *CertificationParameters) Generate(rnd io.Reader, verifyOpts VerifyOpts, activateOpts ActivateOpts) (secret []byte, ec *EncryptedCredential, err error) {
+func (p *CertificationParameters) Generate(rnd io.Reader, verifyOpts VerifyConfig, activateOpts ActivateConfig) (secret []byte, ec *EncryptedCredential, err error) {
 	if err := p.Verify(verifyOpts); err != nil {
 		return nil, nil, err
 	}
@@ -193,23 +105,205 @@ func (p *CertificationParameters) Generate(rnd io.Reader, verifyOpts VerifyOpts,
 	}, nil
 }
 
-// TODO(lsikidi): include authN parameters?
-// certify uses AK's handle and the passed signature scheme to certify the key
-// with the `hnd` handle.
-func certify(tpm transport.TPM, keyHandle any, akHandle tpmutil.Handle, qualifyingData []byte, scheme tpm2.TPMTSigScheme) (*CertificationParameters, error) {
-	handle, err := tpmutil.ToHandleCloser(tpm, keyHandle)
-	if err != nil {
-		return nil, fmt.Errorf("could not get handle from %T: %w", handle, err)
+// A list of validation functions for different key types.
+var (
+	SRKValidateFunc = func(pub *tpm2.TPMTPublic) error {
+		if !pub.ObjectAttributes.Restricted {
+			return errors.New("provided key is not restricted")
+		}
+		if pub.ObjectAttributes.SignEncrypt {
+			return errors.New("provided key is a signing key")
+		}
+		if !pub.ObjectAttributes.Decrypt {
+			return errors.New("provided key is not a decryption key")
+		}
+		if !pub.ObjectAttributes.NoDA {
+			return errors.New("provided key is subject to dictionary attack protection")
+		}
+		return nil
 	}
+	AKValidateFunc = func(pub *tpm2.TPMTPublic) error {
+		if !pub.ObjectAttributes.Restricted {
+			return errors.New("provided key is not restricted")
+		}
+		if !pub.ObjectAttributes.SignEncrypt {
+			return errors.New("provided key is not a signing key")
+		}
+		if pub.ObjectAttributes.Decrypt {
+			return errors.New("provided key is a decryption key")
+		}
+		return nil
+	}
+	SigningAppKeyFunc = func(pub *tpm2.TPMTPublic) error {
+		if pub.ObjectAttributes.Restricted {
+			return errors.New("provided key is restricted")
+		}
+		if !pub.ObjectAttributes.SignEncrypt {
+			return errors.New("provided key is not a signing key")
+		}
+		if pub.ObjectAttributes.Decrypt {
+			return errors.New("provided key is a decryption key")
+		}
+		return nil
+	}
+)
+
+// Verify validates the TPM2-produced certification parameters checking whether:
+//
+//   - the key length is crypto secure
+//   - the attestation parameters matched the attested key
+//   - the key was TPM-generated and resides within TPM
+//   - the key cannot be duplicated outside the TPM
+//   - the signature is successfuly verified against the passed public key
+func (p *CertificationParameters) Verify(cfg VerifyConfig) error {
+	if err := cfg.CheckAndSetDefaults(*p); err != nil {
+		return err
+	}
+
+	var (
+		pub = p.Public
+		att = p.CreateAttestation
+	)
+	if att.Type != tpm2.TPMSTAttestCertify {
+		return fmt.Errorf("attestation does not apply to certification data, got tag %#x", att.Type)
+	}
+
+	if err := tpmcrypto.ValidatePublicKey(*pub); err != nil {
+		return err
+	}
+
+	if !bytes.Equal(cfg.QualifyingData, att.ExtraData.Buffer) {
+		return NonceMismatchError{Expected: cfg.QualifyingData, Actual: att.ExtraData.Buffer}
+	}
+
+	// Make sure the key has sane parameters (e.g., attestation can be faked if an AK
+	// can be used for arbitrary signatures).
+	if err := att.Magic.Check(); err != nil {
+		return errors.New("creation attestation was not produced by a TPM")
+	}
+	if !pub.ObjectAttributes.FixedTPM {
+		return errors.New("provided key is exportable")
+	}
+	if !pub.ObjectAttributes.FixedParent {
+		return errors.New("provided key can be duplicated to a different parent")
+	}
+	if !pub.ObjectAttributes.SensitiveDataOrigin {
+		return errors.New("provided key is not created by TPM")
+	}
+
+	// Verify the attested creation name matches what is computed from
+	// the public key.
+	certifyInfo, err := att.Attested.Certify()
+	if err != nil {
+		return fmt.Errorf("could not decode certify info: %w", err)
+	}
+	pubName, err := tpm2.ObjectName(p.Public)
+	if err != nil {
+		return fmt.Errorf("could not compute public key name: %w", err)
+	}
+
+	if !bytes.Equal(certifyInfo.Name.Buffer, pubName.Buffer) {
+		return errors.New("certification refers to a different key")
+	}
+
+	// Perform custom validation if provided.
+	if cfg.ValidateFunc != nil {
+		if err := cfg.ValidateFunc(p.Public); err != nil {
+			return fmt.Errorf("custom key validation failed: %w", err)
+		}
+	}
+
+	signHash, err := getSignHash(cfg.Public)
+	if err != nil {
+		return err
+	}
+
+	return tpmcrypto.VerifySignature(cfg.Public, p.CreateSignature, signHash, tpm2.Marshal(att))
+}
+
+func getSignHash(pub crypto.PublicKey) (crypto.Hash, error) {
+	hashAlg, err := tpmcrypto.GetSigHashFromPublicKey(pub)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get hash algorithm from public key: %w", err)
+	}
+	return hashAlg, nil
+}
+
+type certifier interface {
+	getHandle() tpmutil.Handle
+	getScheme() (*tpm2.TPMTSigScheme, error)
+	getCertificate() *x509.Certificate
+}
+
+// certifyingKey contains details of a TPM key that could certify other keys.
+type certifyingKey struct {
+	certificate *x509.Certificate
+	ak          *wrappedKey
+}
+
+func newCertifyingKey(ak *wrappedKey, cert *x509.Certificate) certifier {
+	return &certifyingKey{
+		ak:          ak,
+		certificate: cert,
+	}
+}
+
+func (ck *certifyingKey) getHandle() tpmutil.Handle {
+	return ck.ak.hnd
+}
+
+// Public implements [tpmutil.PublicGetter]
+func (ck *certifyingKey) Public() *tpm2.TPMTPublic {
+	return ck.ak.hnd.Public()
+}
+
+// HasPublic implements [tpmutil.PublicGetter]
+func (ck *certifyingKey) HasPublic() bool {
+	return ck.ak.hnd.HasPublic()
+}
+
+func (ck *certifyingKey) getScheme() (*tpm2.TPMTSigScheme, error) {
+	keyType, err := ck.ak.keyType()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get key type from AK: %w", err)
+	}
+	scheme, err := keyType.Scheme()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get signature scheme from AK public key: %w", err)
+	}
+	hash, err := keyType.HashAlg()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hash algorithm from AK public key: %w", err)
+	}
+	sigScheme := tpmcrypto.GetSigScheme(scheme, hash)
+	return &sigScheme, nil
+}
+
+func (ck *certifyingKey) getCertificate() *x509.Certificate {
+	return ck.certificate
+}
+
+// TODO(lsikidi): support AK authorization session
+func certify(tpm transport.TPM, cfg CertifyConfig) (*CertificationParameters, error) {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
+		return nil, err
+	}
+
+	ak := cfg.certifier
+	scheme, err := ak.getScheme()
+	if err != nil {
+		return nil, err
+	}
+
 	rspCertify, err := tpm2.Certify{
 		// The handle of the key to certify.
-		ObjectHandle: tpmutil.ToAuthHandle(handle, tpmutil.NoAuth),
+		ObjectHandle: tpmutil.ToAuthHandle(cfg.Handle, cfg.Auth),
 		// The handle of the AK that will sign the certification.
-		SignHandle: tpmutil.ToAuthHandle(akHandle, tpmutil.NoAuth),
+		SignHandle: tpmutil.ToAuthHandle(ak.getHandle(), tpmutil.NoAuth),
 		QualifyingData: tpm2.TPM2BData{
-			Buffer: qualifyingData,
+			Buffer: cfg.QualifyingData,
 		},
-		InScheme: scheme,
+		InScheme: *scheme,
 	}.Execute(tpm)
 	if err != nil {
 		return nil, fmt.Errorf("tpm2.Certify() failed: %w", err)
@@ -219,9 +313,11 @@ func certify(tpm transport.TPM, keyHandle any, akHandle tpmutil.Handle, qualifyi
 	if err != nil {
 		return nil, fmt.Errorf("could not decode certify info: %w", err)
 	}
+
 	return &CertificationParameters{
-		Public:            handle.Public(),
+		Public:            cfg.Handle.Public(),
 		CreateAttestation: att,
 		CreateSignature:   rspCertify.Signature,
+		Certificate:       ak.getCertificate(),
 	}, nil
 }

@@ -1,8 +1,6 @@
 package quote
 
 import (
-	"fmt"
-
 	"github.com/google/go-tpm/tpm2"
 )
 
@@ -39,13 +37,4 @@ func QuoteFromRaw(q quote) (*Quote, error) {
 		Quote:     *quote,
 		Signature: *sig,
 	}, nil
-}
-
-type QuoteNonceMismatchError struct {
-	Expected []byte
-	Actual   []byte
-}
-
-func (e *QuoteNonceMismatchError) Error() string {
-	return fmt.Sprintf("quote nonce mismatch: expected %q, got %q", e.Expected, e.Actual)
 }

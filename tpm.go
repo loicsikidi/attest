@@ -19,8 +19,6 @@ import (
 	"github.com/loicsikidi/attest/endorsement"
 	"github.com/loicsikidi/attest/info"
 	"github.com/loicsikidi/attest/internal/utils"
-	"github.com/loicsikidi/attest/kty"
-	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
@@ -50,7 +48,7 @@ type tpmBase interface {
 	loadKey(opaqueBlob []byte) (*Key, error)
 	loadKeyFromPersistent(cfg LoadConfig) (*Key, error)
 	newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error)
-	newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error)
+	newKeyCertifiedByKey(certifier certifier, optionalCfg ...KeyConfig) (*Key, error)
 }
 
 // TPM struct with a TPM device on the system.
@@ -157,20 +155,21 @@ func (t *TPM) LoadKeyFromTPM(cfg LoadConfig) (*Key, error) {
 	return t.tpm.loadKeyFromPersistent(cfg)
 }
 
-// NewKeyCertifiedByKey creates an application key certified by
-// the attestation key. Unlike NewKey(), this method does not require
-// an attest.AK object and only requires the AK handle and its algorithm.
-// Thus it can be used in cases where the attestation key was not created
-// by go-attestation library. If opts is nil then DefaultConfig is used.
-func (t *TPM) NewKeyCertifiedByKey(akHandle any, akType kty.KeyType, optionalCfg ...KeyConfig) (*Key, error) {
-	opts := utils.OptionalArg(optionalCfg)
-	if err := opts.CheckAndSetDefaults(); err != nil {
-		return nil, err
-	}
-	handle, err := tpmutil.ToHandle(t.tpm.(*tpmbase).rwc, akHandle)
-	if err != nil {
-		return nil, err
-	}
-	ck := certifyingKey{handle: handle, keyType: akType}
-	return t.tpm.newKeyCertifiedByKey(ck, opts)
-}
+// TODO: reintroduce this function later
+// // NewKeyCertifiedByKey creates an application key certified by
+// // the attestation key. Unlike NewKey(), this method does not require
+// // an attest.AK object and only requires the AK handle and its algorithm.
+// // Thus it can be used in cases where the attestation key was not created
+// // by go-attestation library. If opts is nil then DefaultConfig is used.
+// func (t *TPM) NewKeyCertifiedByKey(akHandle any, akType kty.KeyType, optionalCfg ...KeyConfig) (*Key, error) {
+// 	opts := utils.OptionalArg(optionalCfg)
+// 	if err := opts.CheckAndSetDefaults(); err != nil {
+// 		return nil, err
+// 	}
+// 	handle, err := tpmutil.ToHandle(t.tpm.(*tpmbase).rwc, akHandle)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	ck := certifyingKey{handle: handle, keyType: akType}
+// 	return t.tpm.newKeyCertifiedByKey(ck, opts)
+// }

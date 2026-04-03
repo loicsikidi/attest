@@ -26,12 +26,13 @@ import (
 	"github.com/loicsikidi/attest/quote"
 	"github.com/loicsikidi/attest/storage"
 
-	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
+	"github.com/loicsikidi/attest/internal/utils"
 	sliceutil "github.com/loicsikidi/attest/internal/utils/slices"
 
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 )
 
 // wrappedKey represents a key manipulated through a *tpmbase.
@@ -270,33 +271,8 @@ func (k *wrappedKey) quote(tb tpmBase, nonce []byte, alg tpm2.TPMAlgID, selected
 	}, nil
 }
 
-func (k *wrappedKey) certify(tb tpmBase, handle any, opts CertifyOpts) (*CertificationParameters, error) {
-	kty, err := k.keyType()
-	if err != nil {
-		return nil, fmt.Errorf("failed to access attestation's internal data: %w", err)
-	}
-	ck := certifyingKey{
-		handle:  k.hnd,
-		keyType: kty,
-	}
-	return certifyByKey(tb, handle, ck, opts)
-}
-
-func certifyByKey(tb tpmBase, handle any, ck certifyingKey, opts CertifyOpts) (*CertificationParameters, error) {
-	t, ok := tb.(*tpmbase)
-	if !ok {
-		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
-	}
-
-	scheme, err := ck.keyType.Scheme()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get signature scheme from AK public key: %w", err)
-	}
-	hash, err := ck.keyType.HashAlg()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get hash algorithm from AK public key: %w", err)
-	}
-	return certify(t.rwc, handle, ck.handle, opts.QualifyingData, tpmcrypto.GetSigScheme(scheme, hash))
+func (k *wrappedKey) certify(thetpm transport.TPM, cfg CertifyConfig) (*CertificationParameters, error) {
+	return certify(thetpm, cfg)
 }
 
 func (k *wrappedKey) tpmPublic() (*tpm2.TPMTPublic, error) {
@@ -319,14 +295,20 @@ func (k *wrappedKey) keyType() (kty.KeyType, error) {
 	}
 }
 
-func (k *wrappedKey) certificationParameters() CertificationParameters {
+func (k *wrappedKey) certificationParameters(optionalAK ...*AK) CertificationParameters {
 	// TODO(lsikidi): harmonize type between wrappedKey CertificationParameters to avoid cast
 	pub, _ := k.tpmPublic()
 	att, _ := k.createAttestation.Contents()
+	var cert *x509.Certificate
+	ak := utils.OptionalArg(optionalAK)
+	if ak != nil {
+		cert = ak.GetCertificate()
+	}
 	return CertificationParameters{
 		Public:            pub,
 		CreateAttestation: att,
 		CreateSignature:   k.createSignature,
+		Certificate:       cert,
 	}
 }
 
