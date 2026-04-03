@@ -141,8 +141,10 @@ func (k *Key) Blobs() (pub, priv []byte, err error) {
 
 // Persist stores the application key and its certificate in the TPM.
 //
-// This operation allows the application key to be loaded later with
-// [TPM.LoadKeyFromTPM].
+// This operation relies on the fact that a remote party ensured in a
+// ceremony that the application key is trustworthy. Usually, the outcome of this ceremony
+// is an x509 certificate that certifies the latter.
+// Afterwards, the application key can be loaded with [TPM.LoadKeyFromTPM].
 func (k *Key) Persist(tpm *TPM, cfg PersistConfig) error {
 	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return fmt.Errorf("invalid persist config: %w", err)
