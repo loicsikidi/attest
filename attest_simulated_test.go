@@ -19,17 +19,23 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"math/big"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/endorsement"
 	"github.com/loicsikidi/attest/pcr"
+	"github.com/loicsikidi/go-tpm-kit/tpmcert/ekca"
 	"github.com/loicsikidi/go-tpm-kit/tpmtest"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
@@ -743,4 +749,187 @@ func readPCR(t *testing.T, tpm transport.TPM, pcrIndex uint) []byte {
 		t.Fatalf("failed to read PCR %d: %v", pcrIndex, err)
 	}
 	return pcrReadRsp.PCRValues.Digests[0].Buffer
+}
+
+// createTPMCertificate creates a self-signed certificate for a TPM key for testing purposes.
+func createTPMCertificate(t *testing.T, pub crypto.PublicKey) *x509.Certificate {
+	t.Helper()
+
+	signerKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ECDSA key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName:   "Test TPM Certificate",
+			Organization: []string{"Test Organization"},
+		},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  false,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, pub, signerKey)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse certificate: %v", err)
+	}
+
+	return cert
+}
+
+func TestSimAKPersistAndLoad(t *testing.T) {
+	tests := []struct {
+		name     string
+		akConfig []AKConfig
+		handle   tpmutil.Handle
+		nvIndex  tpmutil.Handle
+		chainIdx tpmutil.Handle
+	}{
+		{
+			name:     "RSA AK",
+			akConfig: []AKConfig{{Algorithm: algorithm.RSA}},
+			handle:   tpmutil.NewHandle(tpm2.TPMHandle(0x81010001)),
+			nvIndex:  tpmutil.NewHandle(tpm2.TPMHandle(0x01C00011)),
+		},
+		{
+			name:     "ECDSA AK",
+			akConfig: []AKConfig{{Algorithm: algorithm.ECDSA}},
+			handle:   tpmutil.NewHandle(tpm2.TPMHandle(0x81010002)),
+			nvIndex:  tpmutil.NewHandle(tpm2.TPMHandle(0x01C00012)),
+		},
+		{
+			name:     "Default AK (RSA)",
+			akConfig: nil,
+			handle:   tpmutil.NewHandle(tpm2.TPMHandle(0x81010003)),
+			nvIndex:  tpmutil.NewHandle(tpm2.TPMHandle(0x01C00013)),
+		},
+		{
+			name:     "RSA AK with cert chain",
+			akConfig: []AKConfig{{Algorithm: algorithm.RSA}},
+			handle:   tpmutil.NewHandle(tpm2.TPMHandle(0x81010010)),
+			nvIndex:  tpmutil.NewHandle(tpm2.TPMHandle(0x01C00020)),
+			chainIdx: tpmutil.NewHandle(tpm2.TPMHandle(0x01C00021)),
+		},
+		{
+			name:     "ECDSA AK with cert chain",
+			akConfig: []AKConfig{{Algorithm: algorithm.ECDSA}},
+			handle:   tpmutil.NewHandle(tpm2.TPMHandle(0x81010011)),
+			nvIndex:  tpmutil.NewHandle(tpm2.TPMHandle(0x01C00022)),
+			chainIdx: tpmutil.NewHandle(tpm2.TPMHandle(0x01C00023)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tpm := setupSimulatedTPM(t)
+
+			ak, err := tpm.NewAK(tt.akConfig...)
+			if err != nil {
+				t.Fatalf("NewAK() failed: %v", err)
+			}
+
+			var chain []*x509.Certificate
+			if tt.chainIdx != nil {
+				// Create a CA with root + intermediate using ekca
+				// Note: in this test, we don't care about the actual chain trust
+				ca, err := ekca.New()
+				if err != nil {
+					t.Fatalf("ekca.New() failed: %v", err)
+				}
+				chain = []*x509.Certificate{ca.Intermediate, ca.Root}
+			}
+
+			cert := createTPMCertificate(t, ak.Public())
+			originalPub := ak.Public()
+
+			persistCfg := PersistConfig{
+				PersistenceConfig: PersistenceConfig{
+					Handle:      tt.handle,
+					CertNVIndex: tt.nvIndex,
+					Parent:      defaultParentConfig,
+				},
+				Certificate: cert,
+			}
+
+			if tt.chainIdx != nil {
+				persistCfg.CertChainNVIndexStart = tt.chainIdx
+				persistCfg.Chain = chain
+			}
+
+			if err := ak.Persist(tpm, persistCfg); err != nil {
+				ak.Close(tpm)
+				t.Fatalf("Persist() failed: %v", err)
+			}
+
+			loadCfg := LoadConfig{
+				Handle:      tt.handle,
+				CertNVIndex: tt.nvIndex,
+			}
+
+			if tt.chainIdx != nil {
+				loadCfg.CertChainNVIndexStart = tt.chainIdx
+			}
+
+			loadedAK, err := tpm.LoadAKFromTPM(loadCfg)
+			if err != nil {
+				loadedAK.Close(tpm)
+				t.Fatalf("LoadAKFromTPM() failed: %v", err)
+			}
+			defer loadedAK.Close(tpm)
+
+			pubKey := originalPub.(interface{ Equal(x crypto.PublicKey) bool })
+			if !pubKey.Equal(loadedAK.Public()) {
+				t.Error("Public key of loaded AK does not match original")
+			}
+
+			if loadedAK.GetCertificate() == nil {
+				t.Fatal("Loaded AK has no certificate")
+			}
+
+			if !cert.Equal(loadedAK.GetCertificate()) {
+				t.Error("Certificate of loaded AK does not match original")
+			}
+
+			if tt.chainIdx != nil {
+				loadedChain := loadedAK.GetChain()
+				if len(loadedChain) != len(chain) {
+					t.Fatalf("Chain length mismatch: got %d, want %d", len(loadedChain), len(chain))
+				}
+			} else {
+				if loadedAK.GetChain() != nil {
+					t.Error("Loaded AK should not have a certificate chain")
+				}
+			}
+
+			// Test that the loaded AK can sign messages
+			msg := []byte("test message for persistence")
+			hash := crypto.SHA256
+			h := hash.New()
+			if _, err := h.Write(msg); err != nil {
+				t.Fatalf("h.Write() failed: %v", err)
+			}
+			hashed := h.Sum(nil)
+
+			sig, err := loadedAK.SignMsg(tpm, msg, hash)
+			if err != nil {
+				t.Fatalf("SignMsg() with loaded AK failed: %v", err)
+			}
+
+			alg := algorithm.RSA // Default
+			if len(tt.akConfig) > 0 {
+				alg = tt.akConfig[0].Algorithm
+			}
+			verify(t, hashed, sig, loadedAK.Public(), alg)
+		})
+	}
 }

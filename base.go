@@ -17,6 +17,7 @@ package attest
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"slices"
 
@@ -129,8 +130,8 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 		defer tpmutil.CloseHandle(t.tpm(), parentHandle) //nolint:errcheck // ignore error on close
 	}
 
-	var akTemplate tpm2.TPMTPublic
 	// The default is RSA.
+	var akTemplate tpm2.TPMTPublic
 	if slices.Contains([]algorithm.Algorithm{algorithm.ECDSA, algorithm.ECC}, opts.Algorithm) {
 		akTemplate = akTemplateECC
 	} else {
@@ -432,4 +433,73 @@ func (t *tpmbase) loadKeyWithParent(opaqueBlob []byte, parent ParentKeyConfig) (
 		return nil, fmt.Errorf("access public key: %v", err)
 	}
 	return &Key{key: newWrappedKey(hnd, key.blob, key.public, key.createData, key.createAttestation, key.createSignature), pub: pub, tpm: t}, nil
+}
+
+func (t *tpmbase) loadAKFromPersistent(cfg LoadConfig) (*AK, error) {
+	result, err := t.loadFromPersistent(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AK from persistent storage: %w", err)
+	}
+	return &AK{
+		ak:          newWrappedAKFromPersisted(result.handle, tpm2.New2B(*result.handle.Public())),
+		pub:         result.cert.PublicKey,
+		certificate: result.cert,
+		chain:       result.chain,
+	}, nil
+}
+
+type loadedtpmkey struct {
+	handle tpmutil.HandleCloser
+	cert   *x509.Certificate
+	chain  []*x509.Certificate
+}
+
+func (t *tpmbase) loadFromPersistent(cfg LoadConfig) (*loadedtpmkey, error) {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
+		return nil, fmt.Errorf("invalid load config: %w", err)
+	}
+
+	akHandle, err := tpmutil.GetPersistedKeyHandle(t.rwc, tpmutil.GetPersistedKeyHandleConfig{
+		Handle: cfg.Handle,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load persistent handle: %w", err)
+	}
+
+	certDER, err := tpmutil.NVRead(t.rwc, tpmutil.NVReadConfig{
+		Index: cfg.CertNVIndex.Handle(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read certificate from NVRAM index 0x%x: %w", cfg.CertNVIndex, err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	pubKey, err := tpmcrypto.PublicKey(akHandle.Public())
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert TPM public key: %w", err)
+	}
+
+	if err := validateCertificateMatchesPublicKey(cert, pubKey); err != nil {
+		return nil, fmt.Errorf("certificate/public key mismatch: %w", err)
+	}
+
+	var chain []*x509.Certificate
+	if cfg.CertChainNVIndexStart != nil {
+		chainDER, err := tpmutil.NVRead(t.rwc, tpmutil.NVReadConfig{
+			Index:      cfg.CertChainNVIndexStart.Handle(),
+			MultiIndex: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to read certificate chain from NVRAM: %w", err)
+		}
+		chain, err = x509.ParseCertificates(chainDER)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse certificate chain: %w", err)
+		}
+	}
+	return &loadedtpmkey{handle: akHandle, cert: cert, chain: chain}, nil
 }

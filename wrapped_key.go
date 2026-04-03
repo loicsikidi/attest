@@ -17,6 +17,7 @@ package attest
 
 import (
 	"crypto"
+	"crypto/x509"
 	"errors"
 	"fmt"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/loicsikidi/attest/internal/utils/slices"
+	sliceutil "github.com/loicsikidi/attest/internal/utils/slices"
 
 	"github.com/google/go-tpm/tpm2"
 )
@@ -43,6 +45,9 @@ type wrappedKey struct {
 	createData        tpm2.TPMSCreationData
 	createAttestation tpm2.TPM2BAttest
 	createSignature   tpm2.TPMTSignature
+
+	// isPersisted indicates if this key was loaded from persistent TPM storage.
+	isPersisted bool
 }
 
 func newWrappedAK(hnd tpmutil.HandleCloser, blob tpm2.TPM2BPrivate, public tpm2.TPM2BPublic, createData tpm2.TPMSCreationData, createAttestation tpm2.TPM2BAttest, createSig tpm2.TPMTSignature) ak {
@@ -53,6 +58,7 @@ func newWrappedAK(hnd tpmutil.HandleCloser, blob tpm2.TPM2BPrivate, public tpm2.
 		createData:        createData,
 		createAttestation: createAttestation,
 		createSignature:   createSig,
+		isPersisted:       false,
 	}
 }
 
@@ -64,11 +70,63 @@ func newWrappedKey(hnd tpmutil.HandleCloser, blob tpm2.TPM2BPrivate, public tpm2
 		createData:        createData,
 		createAttestation: createAttestation,
 		createSignature:   createSig,
+		isPersisted:       false,
+	}
+}
+
+// newWrappedAKFromPersisted creates a [wrappedKey] from a persistent handle.
+func newWrappedAKFromPersisted(hnd tpmutil.HandleCloser, public tpm2.TPM2BPublic) ak {
+	return &wrappedKey{
+		hnd:         hnd,
+		public:      public,
+		isPersisted: true,
+		// createData, createAttestation, createSignature remain zero-valued
 	}
 }
 
 func (k *wrappedKey) close(_ tpmBase) error {
 	return k.hnd.Close()
+}
+
+func (k *wrappedKey) persist(tb tpmBase, cfg PersistConfig) error {
+	t, ok := tb.(*tpmbase)
+	if !ok {
+		return fmt.Errorf("expected *tpmbase, got %T", tb)
+	}
+
+	newHandle, err := tpmutil.Persist(t.rwc, tpmutil.PersistConfig{
+		TransientHandle:  k.hnd,
+		PersistentHandle: cfg.Handle,
+		Auth:             cfg.Parent.Auth,
+		Force:            true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to persist handle: %w", err)
+	}
+
+	k.hnd = tpmutil.NewHandleCloser(t.rwc, newHandle)
+	if err := tpmutil.NVWrite(t.rwc, tpmutil.NVWriteConfig{
+		Index: cfg.CertNVIndex.Handle(),
+		Data:  cfg.Certificate.Raw,
+	}); err != nil {
+		// TODO(lsikidi): if NVWrite fails, we should potentially evict the persisted handle
+		// to maintain consistency (transaction-like behavior)
+		return fmt.Errorf("failed to write certificate to NVRAM: %w", err)
+	}
+
+	if cfg.Chain != nil {
+		chainDER := sliceutil.Reduce(cfg.Chain, []byte{}, func(acc []byte, cert *x509.Certificate) []byte {
+			return append(acc, cert.Raw...)
+		})
+		if err := tpmutil.NVWrite(t.rwc, tpmutil.NVWriteConfig{
+			Index:      cfg.CertChainNVIndexStart.Handle(),
+			Data:       chainDER,
+			MultiIndex: true,
+		}); err != nil {
+			return fmt.Errorf("failed to write certificate chain to NVRAM: %w", err)
+		}
+	}
+	return nil
 }
 
 func (k *wrappedKey) marshal() ([]byte, error) {
@@ -90,6 +148,13 @@ func (k *wrappedKey) blobs() ([]byte, []byte, error) {
 func (k *wrappedKey) attestationParameters() AttestationParameters {
 	// TODO(lsikidi): harmonize type between wrappedKey AttestationParameters to avoid cast
 	pub, _ := k.tpmPublic()
+
+	if k.isPersisted {
+		return AttestationParameters{
+			Public: pub,
+		}
+	}
+
 	createAtt, _ := k.createAttestation.Contents()
 	return AttestationParameters{
 		Public:            pub,

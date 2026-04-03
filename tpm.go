@@ -44,6 +44,7 @@ type tpmBase interface {
 
 	loadAK(opaqueBlob []byte) (*AK, error)
 	loadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*AK, error)
+	loadAKFromPersistent(cfg LoadConfig) (*AK, error)
 	newAK(optionalCfg ...AKConfig) (*AK, error)
 	loadKeyWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*Key, error)
 	loadKey(opaqueBlob []byte) (*Key, error)
@@ -117,6 +118,11 @@ func (t *TPM) LoadAK(opaqueBlob []byte) (*AK, error) {
 // under the given parent for use.
 func (t *TPM) LoadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*AK, error) {
 	return t.tpm.loadAKWithParent(opaqueBlob, parent)
+}
+
+// LoadAKFromTPM loads a previously persisted AK from the TPM.
+func (t *TPM) LoadAKFromTPM(cfg LoadConfig) (*AK, error) {
+	return t.tpm.loadAKFromPersistent(cfg)
 }
 
 // PCRBanks returns the list of supported PCR banks on the TPM.

@@ -18,6 +18,9 @@ package attest
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -113,9 +116,17 @@ type ParentKeyConfig struct {
 	Auth tpm2.Session
 }
 
+func (c *ParentKeyConfig) CheckAndSetDefaults() error {
+	if c.Auth == nil {
+		c.Auth = tpmutil.NoAuth
+	}
+	return nil
+}
+
 type ak interface {
 	close(tpmBase) error
 	marshal() ([]byte, error)
+	persist(tpmBase, PersistConfig) error
 	activateCredential(tpm tpmBase, in EncryptedCredential, ek *endorsement.EK) ([]byte, error)
 	quote(t tpmBase, nonce []byte, alg tpm2.TPMAlgID, selectedPCRs []int) (*quote.Quote, error)
 	attestationParameters() AttestationParameters
@@ -125,8 +136,10 @@ type ak interface {
 
 // AK represents a key which can be used for attestation.
 type AK struct {
-	ak  ak
-	pub crypto.PublicKey
+	ak          ak
+	pub         crypto.PublicKey
+	certificate *x509.Certificate
+	chain       []*x509.Certificate
 }
 
 // Public returns the public key for the AK. This is only supported for TPM 2.0
@@ -190,6 +203,18 @@ func (k *AK) AttestationParameters() AttestationParameters {
 	return k.ak.attestationParameters()
 }
 
+// GetCertificate returns the x509 certificate that certifies the AK.
+func (k *AK) GetCertificate() *x509.Certificate {
+	return k.certificate
+}
+
+// GetChain returns the certificate chain for the AK, or nil if no chain is available.
+//
+// The chain is populated when loading an AK from persistent storage with [TPM.LoadAKFromTPM].
+func (k *AK) GetChain() []*x509.Certificate {
+	return k.chain
+}
+
 // // Certify uses the attestation key to certify the key with `handle`. It returns
 // // certification parameters which allow to verify the properties of the attested
 // // key. Depending on the actual instantiation it can accept different handle
@@ -202,6 +227,28 @@ func (k *AK) AttestationParameters() AttestationParameters {
 // restricted signing key, it cannot sign a digest directly.
 func (k *AK) SignMsg(tpm *TPM, msg []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return k.ak.signMsg(tpm.tpm, msg, k.pub, opts)
+}
+
+// Persist stores the AK and its certificate in the TPM.
+//
+// This operation relies on the fact that a remote party ensured in a
+// ceremony that the AK is trustworthy. Usually, the outcome of this ceremony
+// is an x509 certificate that certifies the AK.
+// Afterwards, the AK can be loaded with [TPM.LoadAKFromTPM].
+func (k *AK) Persist(tpm *TPM, cfg PersistConfig) error {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
+		return fmt.Errorf("invalid persist config: %w", err)
+	}
+
+	if err := validateCertificateMatchesPublicKey(cfg.Certificate, k.pub); err != nil {
+		return fmt.Errorf("certificate validation failed: %w", err)
+	}
+
+	if err := k.ak.persist(tpm.tpm, cfg); err != nil {
+		return fmt.Errorf("failed to persist AK: %w", err)
+	}
+
+	return nil
 }
 
 // AKConfig encapsulates parameters for minting keys.
@@ -221,6 +268,83 @@ func (c *AKConfig) CheckAndSetDefaults() error {
 	if c.Parent == nil {
 		c.Parent = &defaultParentConfig
 	}
+	return nil
+}
+
+// PersistenceConfig contains common configuration for AK persistence operations.
+type PersistenceConfig struct {
+	// Handle is the persistent TPM handle where the key will be stored/loaded.
+	//
+	// Required.
+	Handle tpmutil.Handle
+
+	// CertNVIndex is the NVRAM index where the x509 certificate will be stored/loaded.
+	//
+	// Required.
+	CertNVIndex tpmutil.Handle
+
+	// CertChainNVIndexStart is the starting NV index for the certificate chain.
+	//
+	// Required.
+	CertChainNVIndexStart tpmutil.Handle
+
+	// Parent describes the parent key configuration.
+	//
+	// Required.
+	Parent ParentKeyConfig
+}
+
+// PersistConfig extends [PersistenceConfig] with persist-specific fields.
+type PersistConfig struct {
+	PersistenceConfig
+
+	// Certificate is the x509 certificate that certifies this key.
+	//
+	// Required.
+	Certificate *x509.Certificate
+
+	// Chain is the certificate chain that certifies this key.
+	//
+	// Optional.
+	Chain []*x509.Certificate
+}
+
+func (c *PersistConfig) CheckAndSetDefaults() error {
+	if c.Handle.Type() != tpmutil.PersistentHandle {
+		return fmt.Errorf("invalid handle type: expected persistent handle, got %v", c.Handle.Type())
+	}
+
+	if c.Certificate == nil {
+		return errors.New("certificate is required for persistence")
+	}
+
+	if c.Chain != nil && c.CertChainNVIndexStart == nil {
+		return errors.New("certificate chain NV index start is required when chain is provided")
+	}
+
+	return nil
+}
+
+// LoadConfig is an alias for loading operations.
+type LoadConfig = PersistenceConfig
+
+func (c *LoadConfig) CheckAndSetDefaults() error {
+	if c.Handle == nil {
+		return errors.New("handle is required for loading")
+	}
+
+	if c.Handle.Type() != tpmutil.PersistentHandle {
+		return fmt.Errorf("invalid handle type: expected persistent handle, got %v", c.Handle.Type())
+	}
+
+	if c.CertNVIndex == nil {
+		return errors.New("certificate NVRAM index is required for loading")
+	}
+
+	if err := c.Parent.CheckAndSetDefaults(); err != nil {
+		return fmt.Errorf("invalid parent key configuration: %w", err)
+	}
+
 	return nil
 }
 
@@ -334,6 +458,25 @@ func (a *AKPublic) VerifyAll(quotes []quote.Quote, pcrs []pcr.PCR, nonce []byte)
 	if len(errPCRs) > 0 {
 		return fmt.Errorf("some PCRs were not covered by a quote: %s", strings.Join(errPCRs, ", "))
 	}
+	return nil
+}
+
+// validateCertificateMatchesPublicKey verifies that the certificate's public key
+// matches the key's public key.
+func validateCertificateMatchesPublicKey(cert *x509.Certificate, pub crypto.PublicKey) error {
+	switch pubKey := pub.(type) {
+	case *rsa.PublicKey:
+		if !pubKey.Equal(cert.PublicKey) {
+			return errors.New("certificate public key does not match public key")
+		}
+	case *ecdsa.PublicKey:
+		if !pubKey.Equal(cert.PublicKey) {
+			return errors.New("certificate public key does not match public key")
+		}
+	default:
+		return fmt.Errorf("%T unsupported public key type", pub)
+	}
+
 	return nil
 }
 
