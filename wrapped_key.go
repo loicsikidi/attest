@@ -29,7 +29,6 @@ import (
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
-	"github.com/loicsikidi/attest/internal/utils/slices"
 	sliceutil "github.com/loicsikidi/attest/internal/utils/slices"
 
 	"github.com/google/go-tpm/tpm2"
@@ -249,7 +248,7 @@ func (k *wrappedKey) quote(tb tpmBase, nonce []byte, alg tpm2.TPMAlgID, selected
 		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
 	}
 
-	uintPCRs := slices.IntToUint(selectedPCRs)
+	uintPCRs := sliceutil.IntToUint(selectedPCRs)
 	sel := tpmutil.ToTPMLPCRSelection(uintPCRs, tpm2.TPMIAlgHash(alg))
 	rspQ, err := tpm2.Quote{
 		SignHandle:     k.hnd,
