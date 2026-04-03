@@ -48,6 +48,7 @@ type tpmBase interface {
 	newAK(optionalCfg ...AKConfig) (*AK, error)
 	loadKeyWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*Key, error)
 	loadKey(opaqueBlob []byte) (*Key, error)
+	loadKeyFromPersistent(cfg LoadConfig) (*Key, error)
 	newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error)
 	newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error)
 }
@@ -149,6 +150,11 @@ func (t *TPM) NewKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
 // to this function.
 func (t *TPM) LoadKey(opaqueBlob []byte) (*Key, error) {
 	return t.tpm.loadKey(opaqueBlob)
+}
+
+// LoadKeyFromTPM loads a previously persisted application key from the TPM.
+func (t *TPM) LoadKeyFromTPM(cfg LoadConfig) (*Key, error) {
+	return t.tpm.loadKeyFromPersistent(cfg)
 }
 
 // NewKeyCertifiedByKey creates an application key certified by

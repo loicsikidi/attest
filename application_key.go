@@ -19,6 +19,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/x509"
 	"fmt"
 	"io"
 
@@ -33,6 +34,7 @@ import (
 type key interface {
 	close(tpmBase) error
 	marshal() ([]byte, error)
+	persist(tpmBase, PersistConfig) error
 	certificationParameters() CertificationParameters
 	sign(tpmBase, []byte, crypto.PublicKey, crypto.SignerOpts) ([]byte, error)
 	decrypt(tpmBase, []byte) ([]byte, error)
@@ -42,9 +44,11 @@ type key interface {
 // Key represents a key which can be used for signing and decrypting
 // outside-TPM objects.
 type Key struct {
-	key key
-	pub crypto.PublicKey
-	tpm tpmBase
+	key         key
+	pub         crypto.PublicKey
+	tpm         tpmBase
+	certificate *x509.Certificate
+	chain       []*x509.Certificate
 }
 
 // signer implements crypto.Signer returned by Key.Private().
@@ -133,6 +137,36 @@ func (k *Key) CertificationParameters() CertificationParameters {
 // Blobs returns public and private blobs to be used by tpm2.Load().
 func (k *Key) Blobs() (pub, priv []byte, err error) {
 	return k.key.blobs()
+}
+
+// Persist stores the application key and its certificate in the TPM.
+//
+// This operation allows the application key to be loaded later with
+// [TPM.LoadKeyFromTPM].
+func (k *Key) Persist(tpm *TPM, cfg PersistConfig) error {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
+		return fmt.Errorf("invalid persist config: %w", err)
+	}
+
+	if err := validateCertificateMatchesPublicKey(cfg.Certificate, k.pub); err != nil {
+		return fmt.Errorf("certificate validation failed: %w", err)
+	}
+
+	if err := k.key.persist(tpm.tpm, cfg); err != nil {
+		return fmt.Errorf("failed to persist application key: %w", err)
+	}
+
+	return nil
+}
+
+// GetCertificate returns the x509 certificate that certifies the application key.
+func (k *Key) GetCertificate() *x509.Certificate {
+	return k.certificate
+}
+
+// GetChain returns the certificate chain for the application key, or nil if no chain is available.
+func (k *Key) GetChain() []*x509.Certificate {
+	return k.chain
 }
 
 func templateFromConfig(optionalCfg ...KeyConfig) (tpm2.TPMTPublic, error) {

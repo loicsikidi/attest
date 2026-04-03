@@ -84,6 +84,16 @@ func newWrappedAKFromPersisted(hnd tpmutil.HandleCloser, public tpm2.TPM2BPublic
 	}
 }
 
+// newWrappedKeyFromPersisted creates a [wrappedKey] for an application key from a persistent handle.
+func newWrappedKeyFromPersisted(hnd tpmutil.HandleCloser, public tpm2.TPM2BPublic) key {
+	return &wrappedKey{
+		hnd:         hnd,
+		public:      public,
+		isPersisted: true,
+		// createData, createAttestation, createSignature remain zero-valued
+	}
+}
+
 func (k *wrappedKey) close(_ tpmBase) error {
 	return k.hnd.Close()
 }

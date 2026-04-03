@@ -448,6 +448,20 @@ func (t *tpmbase) loadAKFromPersistent(cfg LoadConfig) (*AK, error) {
 	}, nil
 }
 
+func (t *tpmbase) loadKeyFromPersistent(cfg LoadConfig) (*Key, error) {
+	result, err := t.loadFromPersistent(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load application key from persistent storage: %w", err)
+	}
+	return &Key{
+		key:         newWrappedKeyFromPersisted(result.handle, tpm2.New2B(*result.handle.Public())),
+		pub:         result.cert.PublicKey,
+		tpm:         t,
+		certificate: result.cert,
+		chain:       result.chain,
+	}, nil
+}
+
 type loadedtpmkey struct {
 	handle tpmutil.HandleCloser
 	cert   *x509.Certificate

@@ -34,6 +34,7 @@ import (
 
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/endorsement"
+	"github.com/loicsikidi/attest/kty"
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/go-tpm-kit/tpmcert/ekca"
 	"github.com/loicsikidi/go-tpm-kit/tpmtest"
@@ -853,11 +854,9 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 			originalPub := ak.Public()
 
 			persistCfg := PersistConfig{
-				PersistenceConfig: PersistenceConfig{
-					Handle:      tt.handle,
-					CertNVIndex: tt.nvIndex,
-					Parent:      defaultParentConfig,
-				},
+				Handle:      tt.handle,
+				CertNVIndex: tt.nvIndex,
+				Parent:      defaultParentConfig,
 				Certificate: cert,
 			}
 
@@ -930,6 +929,174 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 				alg = tt.akConfig[0].Algorithm
 			}
 			verify(t, hashed, sig, loadedAK.Public(), alg)
+		})
+	}
+}
+
+func TestSimKeyPersistAndLoad(t *testing.T) {
+	tests := []struct {
+		name      string
+		keyConfig []KeyConfig
+		handle    tpmutil.Handle
+		nvIndex   tpmutil.Handle
+		chainIdx  tpmutil.Handle
+	}{
+		{
+			name:      "RSA Key",
+			keyConfig: []KeyConfig{{KeyType: kty.RSA_2048}},
+			handle:    tpmutil.NewHandle(tpm2.TPMHandle(0x81020001)),
+			nvIndex:   tpmutil.NewHandle(tpm2.TPMHandle(0x01C00031)),
+		},
+		{
+			name:      "ECDSA P256 Key",
+			keyConfig: []KeyConfig{{KeyType: kty.ECC_P256}},
+			handle:    tpmutil.NewHandle(tpm2.TPMHandle(0x81020002)),
+			nvIndex:   tpmutil.NewHandle(tpm2.TPMHandle(0x01C00032)),
+		},
+		{
+			name:      "Default Key (ECC P256)",
+			keyConfig: nil,
+			handle:    tpmutil.NewHandle(tpm2.TPMHandle(0x81020004)),
+			nvIndex:   tpmutil.NewHandle(tpm2.TPMHandle(0x01C00034)),
+		},
+		{
+			name:      "RSA Key with cert chain",
+			keyConfig: []KeyConfig{{KeyType: kty.RSA_2048}},
+			handle:    tpmutil.NewHandle(tpm2.TPMHandle(0x81020010)),
+			nvIndex:   tpmutil.NewHandle(tpm2.TPMHandle(0x01C00040)),
+			chainIdx:  tpmutil.NewHandle(tpm2.TPMHandle(0x01C00041)),
+		},
+		{
+			name:      "ECDSA Key with cert chain",
+			keyConfig: []KeyConfig{{KeyType: kty.ECC_P256}},
+			handle:    tpmutil.NewHandle(tpm2.TPMHandle(0x81020011)),
+			nvIndex:   tpmutil.NewHandle(tpm2.TPMHandle(0x01C00042)),
+			chainIdx:  tpmutil.NewHandle(tpm2.TPMHandle(0x01C00043)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tpm := setupSimulatedTPM(t)
+
+			// Create AK first (needed to certify the application key)
+			ak, err := tpm.NewAK()
+			if err != nil {
+				t.Fatalf("NewAK() failed: %v", err)
+			}
+			defer ak.Close(tpm)
+
+			key, err := tpm.NewKey(ak, tt.keyConfig...)
+			if err != nil {
+				t.Fatalf("NewKey() failed: %v", err)
+			}
+
+			var chain []*x509.Certificate
+			if tt.chainIdx != nil {
+				// Create a CA with root + intermediate using ekca
+				ca, err := ekca.New()
+				if err != nil {
+					t.Fatalf("ekca.New() failed: %v", err)
+				}
+				chain = []*x509.Certificate{ca.Intermediate, ca.Root}
+			}
+
+			cert := createTPMCertificate(t, key.Public())
+			originalPub := key.Public()
+
+			persistCfg := PersistConfig{
+				Handle:      tt.handle,
+				CertNVIndex: tt.nvIndex,
+				Parent:      defaultParentConfig,
+				Certificate: cert,
+			}
+
+			if tt.chainIdx != nil {
+				persistCfg.CertChainNVIndexStart = tt.chainIdx
+				persistCfg.Chain = chain
+			}
+
+			if err := key.Persist(tpm, persistCfg); err != nil {
+				key.Close()
+				t.Fatalf("Persist() failed: %v", err)
+			}
+
+			loadCfg := LoadConfig{
+				Handle:      tt.handle,
+				CertNVIndex: tt.nvIndex,
+			}
+
+			if tt.chainIdx != nil {
+				loadCfg.CertChainNVIndexStart = tt.chainIdx
+			}
+
+			loadedKey, err := tpm.LoadKeyFromTPM(loadCfg)
+			if err != nil {
+				loadedKey.Close()
+				t.Fatalf("LoadKeyFromTPM() failed: %v", err)
+			}
+			defer loadedKey.Close()
+
+			pubKey := originalPub.(interface{ Equal(x crypto.PublicKey) bool })
+			if !pubKey.Equal(loadedKey.Public()) {
+				t.Error("Public key of loaded key does not match original")
+			}
+
+			if loadedKey.GetCertificate() == nil {
+				t.Fatal("Loaded key has no certificate")
+			}
+
+			if !cert.Equal(loadedKey.GetCertificate()) {
+				t.Error("Certificate of loaded key does not match original")
+			}
+
+			if tt.chainIdx != nil {
+				loadedChain := loadedKey.GetChain()
+				if len(loadedChain) != len(chain) {
+					t.Fatalf("Chain length mismatch: got %d, want %d", len(loadedChain), len(chain))
+				}
+			} else {
+				if loadedKey.GetChain() != nil {
+					t.Error("Loaded key should not have a certificate chain")
+				}
+			}
+
+			// Test that the loaded key can sign
+			msg := []byte("test message for application key persistence")
+
+			hash := crypto.SHA256 // Default
+			alg := algorithm.RSA  // Default
+			if len(tt.keyConfig) > 0 {
+				switch tt.keyConfig[0].KeyType.Kind() {
+				case tpm2.TPMAlgRSA:
+					alg = algorithm.RSA
+					hash = crypto.SHA256
+				case tpm2.TPMAlgECC:
+					alg = algorithm.ECDSA
+					hash = crypto.SHA256
+				}
+			} else {
+				alg = algorithm.ECDSA
+				hash = crypto.SHA256
+			}
+
+			h := hash.New()
+			if _, err := h.Write(msg); err != nil {
+				t.Fatalf("h.Write() failed: %v", err)
+			}
+			hashed := h.Sum(nil)
+
+			signer, err := loadedKey.Private(loadedKey.Public())
+			if err != nil {
+				t.Fatalf("Private() failed: %v", err)
+			}
+
+			sig, err := signer.(crypto.Signer).Sign(nil, hashed, hash)
+			if err != nil {
+				t.Fatalf("Sign() with loaded key failed: %v", err)
+			}
+
+			verify(t, hashed, sig, loadedKey.Public(), alg)
 		})
 	}
 }

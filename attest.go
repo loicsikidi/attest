@@ -271,8 +271,8 @@ func (c *AKConfig) CheckAndSetDefaults() error {
 	return nil
 }
 
-// PersistenceConfig contains common configuration for AK persistence operations.
-type PersistenceConfig struct {
+// PersistConfig encapsulates parameters for persisting keys.
+type PersistConfig struct {
 	// Handle is the persistent TPM handle where the key will be stored/loaded.
 	//
 	// Required.
@@ -292,11 +292,6 @@ type PersistenceConfig struct {
 	//
 	// Required.
 	Parent ParentKeyConfig
-}
-
-// PersistConfig extends [PersistenceConfig] with persist-specific fields.
-type PersistConfig struct {
-	PersistenceConfig
 
 	// Certificate is the x509 certificate that certifies this key.
 	//
@@ -310,8 +305,16 @@ type PersistConfig struct {
 }
 
 func (c *PersistConfig) CheckAndSetDefaults() error {
+	if c.Handle == nil {
+		return errors.New("handle is required for persistence")
+	}
+
 	if c.Handle.Type() != tpmutil.PersistentHandle {
 		return fmt.Errorf("invalid handle type: expected persistent handle, got %v", c.Handle.Type())
+	}
+
+	if c.CertNVIndex == nil {
+		return errors.New("certificate NVRAM index is required for persistence")
 	}
 
 	if c.Certificate == nil {
@@ -326,7 +329,22 @@ func (c *PersistConfig) CheckAndSetDefaults() error {
 }
 
 // LoadConfig is an alias for loading operations.
-type LoadConfig = PersistenceConfig
+type LoadConfig struct {
+	// Handle is the persistent TPM handle where the key will be stored/loaded.
+	//
+	// Required.
+	Handle tpmutil.Handle
+
+	// CertNVIndex is the NVRAM index where the x509 certificate will be stored/loaded.
+	//
+	// Required.
+	CertNVIndex tpmutil.Handle
+
+	// CertChainNVIndexStart is the starting NV index for the certificate chain.
+	//
+	// Required.
+	CertChainNVIndexStart tpmutil.Handle
+}
 
 func (c *LoadConfig) CheckAndSetDefaults() error {
 	if c.Handle == nil {
@@ -339,10 +357,6 @@ func (c *LoadConfig) CheckAndSetDefaults() error {
 
 	if c.CertNVIndex == nil {
 		return errors.New("certificate NVRAM index is required for loading")
-	}
-
-	if err := c.Parent.CheckAndSetDefaults(); err != nil {
-		return fmt.Errorf("invalid parent key configuration: %w", err)
 	}
 
 	return nil
