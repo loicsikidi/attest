@@ -65,3 +65,19 @@ func RemoveFromSlice[T comparable](slice []T, toRemove ...T) []T {
 
 	return result
 }
+
+func Map[T, S any](items []T, fn func(T) S) []S {
+	result := make([]S, len(items))
+	for i, item := range items {
+		result[i] = fn(item)
+	}
+	return result
+}
+
+func Reduce[T, S any](items []T, initial S, fn func(S, T) S) S {
+	result := initial
+	for _, item := range items {
+		result = fn(result, item)
+	}
+	return result
+}

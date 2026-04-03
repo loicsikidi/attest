@@ -44,9 +44,11 @@ type tpmBase interface {
 
 	loadAK(opaqueBlob []byte) (*AK, error)
 	loadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*AK, error)
+	loadAKFromPersistent(cfg LoadConfig) (*AK, error)
 	newAK(optionalCfg ...AKConfig) (*AK, error)
 	loadKeyWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*Key, error)
 	loadKey(opaqueBlob []byte) (*Key, error)
+	loadKeyFromPersistent(cfg LoadConfig) (*Key, error)
 	newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error)
 	newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error)
 }
@@ -119,6 +121,11 @@ func (t *TPM) LoadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*AK, 
 	return t.tpm.loadAKWithParent(opaqueBlob, parent)
 }
 
+// LoadAKFromTPM loads a previously persisted AK from the TPM.
+func (t *TPM) LoadAKFromTPM(cfg LoadConfig) (*AK, error) {
+	return t.tpm.loadAKFromPersistent(cfg)
+}
+
 // PCRBanks returns the list of supported PCR banks on the TPM.
 //
 // This is a low-level API. Consumers seeking to attest the state of the
@@ -143,6 +150,11 @@ func (t *TPM) NewKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
 // to this function.
 func (t *TPM) LoadKey(opaqueBlob []byte) (*Key, error) {
 	return t.tpm.loadKey(opaqueBlob)
+}
+
+// LoadKeyFromTPM loads a previously persisted application key from the TPM.
+func (t *TPM) LoadKeyFromTPM(cfg LoadConfig) (*Key, error) {
+	return t.tpm.loadKeyFromPersistent(cfg)
 }
 
 // NewKeyCertifiedByKey creates an application key certified by
