@@ -61,13 +61,6 @@ type handle interface {
 	KnownName() *tpm2.TPM2BName
 }
 
-// OpenConfig encapsulates settings passed to OpenTPM().
-type OpenConfig struct {
-	// Transport provides a TPM 2.0 command channel, which can be
-	// used in-lieu of any TPM present on the platform.
-	Transport transport.TPMCloser
-}
-
 // OpenTPM initializes access to the TPM based on the
 // config provided.
 func OpenTPM(optionalCfg ...OpenConfig) (*TPM, error) {
@@ -94,35 +87,6 @@ func probeTpm(base tpmBase) error {
 	return nil
 }
 
-// ParentKeyConfig describes the Storage Root Key that is used
-type ParentKeyConfig struct {
-	SRKAlgorithm algorithm.Algorithm // RSA or ECC/ECDSA
-	SRKHandle    tpm2.TPMHandle
-	// Handle allows to specify a custom key handle.
-	//
-	// WARNING: it's the responsibility of the caller
-	// to manage the key lifecycle appropriately
-	// (i.e., load and close).
-	//
-	// Notes:
-	//   - If not set, the SRKHandle will be used instead.
-	//   - Handle only applies to AK keys not Application keys
-	//     (at least for now).
-	// Default: nil
-	Handle tpmutil.Handle
-	// Auth is the authorization session for the handle key.
-	//
-	// Default: [NoAuth].
-	Auth tpm2.Session
-}
-
-func (c *ParentKeyConfig) CheckAndSetDefaults() error {
-	if c.Auth == nil {
-		c.Auth = tpmutil.NoAuth
-	}
-	return nil
-}
-
 type ak interface {
 	close(tpmBase) error
 	marshal() ([]byte, error)
@@ -130,7 +94,7 @@ type ak interface {
 	activateCredential(tpm tpmBase, in EncryptedCredential, ek *endorsement.EK) ([]byte, error)
 	quote(t tpmBase, nonce []byte, alg tpm2.TPMAlgID, selectedPCRs []int) (*quote.Quote, error)
 	attestationParameters() AttestationParameters
-	certify(tb tpmBase, handle any, opts CertifyOpts) (*CertificationParameters, error)
+	certify(tpm transport.TPM, cfg CertifyConfig) (*CertificationParameters, error)
 	signMsg(tb tpmBase, msg []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error)
 }
 
@@ -215,13 +179,14 @@ func (k *AK) GetChain() []*x509.Certificate {
 	return k.chain
 }
 
-// // Certify uses the attestation key to certify the key with `handle`. It returns
-// // certification parameters which allow to verify the properties of the attested
-// // key. Depending on the actual instantiation it can accept different handle
-// // types (e.g., tpmutil.Handle on Linux or uintptr on Windows).
-// func (k *AK) Certify(tpm *TPM, handle any) (*CertificationParameters, error) {
-// 	return k.ak.certify(tpm.tpm, handle, CertifyOpts{})
-// }
+// Certify uses the attestation key to certify the key with `handle`. It returns
+// certification parameters which allow to verify the properties of the attested
+// key.
+func (k *AK) Certify(tpm *TPM, cfg CertifyConfig) (*CertificationParameters, error) {
+	t := tpm.tpm.(*tpmbase)
+	cfg.certifier = newCertifyingKey(k.ak.(*wrappedKey), k.certificate)
+	return k.ak.certify(t.rwc, cfg)
+}
 
 // SignMsg signs the message (not the digest) with the AK. Note that AK is a
 // restricted signing key, it cannot sign a digest directly.
@@ -246,117 +211,6 @@ func (k *AK) Persist(tpm *TPM, cfg PersistConfig) error {
 
 	if err := k.ak.persist(tpm.tpm, cfg); err != nil {
 		return fmt.Errorf("failed to persist AK: %w", err)
-	}
-
-	return nil
-}
-
-// AKConfig encapsulates parameters for minting keys.
-type AKConfig struct {
-	// Optionally set unique name for AK on Windows.
-	Name string
-	// Parent describes the Storage Root Key that will be used as a parent.
-	// If nil, the default SRK (i.e. RSA with handle 0x81000001) is assumed.
-	// Supported only by TPM 2.0 on Linux.
-	Parent *ParentKeyConfig
-
-	// If not specified, the default algorithm (RSA) is assumed.
-	Algorithm algorithm.Algorithm
-}
-
-func (c *AKConfig) CheckAndSetDefaults() error {
-	if c.Parent == nil {
-		c.Parent = &defaultParentConfig
-	}
-	return nil
-}
-
-// PersistConfig encapsulates parameters for persisting keys.
-type PersistConfig struct {
-	// Handle is the persistent TPM handle where the key will be stored/loaded.
-	//
-	// Required.
-	Handle tpmutil.Handle
-
-	// CertNVIndex is the NVRAM index where the x509 certificate will be stored/loaded.
-	//
-	// Required.
-	CertNVIndex tpmutil.Handle
-
-	// CertChainNVIndexStart is the starting NV index for the certificate chain.
-	//
-	// Required.
-	CertChainNVIndexStart tpmutil.Handle
-
-	// Parent describes the parent key configuration.
-	//
-	// Required.
-	Parent ParentKeyConfig
-
-	// Certificate is the x509 certificate that certifies this key.
-	//
-	// Required.
-	Certificate *x509.Certificate
-
-	// Chain is the certificate chain that certifies this key.
-	//
-	// Optional.
-	Chain []*x509.Certificate
-}
-
-func (c *PersistConfig) CheckAndSetDefaults() error {
-	if c.Handle == nil {
-		return errors.New("handle is required for persistence")
-	}
-
-	if c.Handle.Type() != tpmutil.PersistentHandle {
-		return fmt.Errorf("invalid handle type: expected persistent handle, got %v", c.Handle.Type())
-	}
-
-	if c.CertNVIndex == nil {
-		return errors.New("certificate NVRAM index is required for persistence")
-	}
-
-	if c.Certificate == nil {
-		return errors.New("certificate is required for persistence")
-	}
-
-	if c.Chain != nil && c.CertChainNVIndexStart == nil {
-		return errors.New("certificate chain NV index start is required when chain is provided")
-	}
-
-	return nil
-}
-
-// LoadConfig is an alias for loading operations.
-type LoadConfig struct {
-	// Handle is the persistent TPM handle where the key will be stored/loaded.
-	//
-	// Required.
-	Handle tpmutil.Handle
-
-	// CertNVIndex is the NVRAM index where the x509 certificate will be stored/loaded.
-	//
-	// Required.
-	CertNVIndex tpmutil.Handle
-
-	// CertChainNVIndexStart is the starting NV index for the certificate chain.
-	//
-	// Required.
-	CertChainNVIndexStart tpmutil.Handle
-}
-
-func (c *LoadConfig) CheckAndSetDefaults() error {
-	if c.Handle == nil {
-		return errors.New("handle is required for loading")
-	}
-
-	if c.Handle.Type() != tpmutil.PersistentHandle {
-		return fmt.Errorf("invalid handle type: expected persistent handle, got %v", c.Handle.Type())
-	}
-
-	if c.CertNVIndex == nil {
-		return errors.New("certificate NVRAM index is required for loading")
 	}
 
 	return nil
@@ -506,7 +360,7 @@ func (a *AKPublic) validateQuote(q quote.Quote, pcrs []pcr.PCR, nonce []byte) er
 	}
 
 	if !bytes.Equal(att.ExtraData.Buffer, nonce) {
-		return &quote.QuoteNonceMismatchError{Expected: att.ExtraData.Buffer, Actual: nonce}
+		return &NonceMismatchError{Expected: att.ExtraData.Buffer, Actual: nonce}
 	}
 
 	quoteInfo, err := att.Attested.Quote()

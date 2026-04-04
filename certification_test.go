@@ -16,15 +16,23 @@
 package attest
 
 import (
-	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/loicsikidi/attest/algorithm"
+	"github.com/loicsikidi/attest/internal/testutil"
 	"github.com/loicsikidi/attest/kty"
 
+	"github.com/google/go-tpm/tpm2"
+	"github.com/loicsikidi/go-tpm-kit/tpmcert/ekca"
 	tpmcrypto "github.com/loicsikidi/go-tpm-kit/tpmcrypto"
+	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -61,22 +69,22 @@ func testCertificationParameters(t *testing.T, tpm *TPM) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		hash, err := tpmcrypto.GetSigHashFromPublic(*pub)
-		if err != nil {
-			t.Fatal(err)
-		}
-		correctOpts := VerifyOpts{
+		correctOpts := VerifyConfig{
 			Public: pk,
-			Hash:   hash,
 		}
 
 		wrongKey, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			t.Fatal(err)
 		}
-		wrongHash := crypto.SHA512_256
-		if wrongHash == correctOpts.Hash {
-			wrongHash = crypto.SHA256
+
+		unsupportedHashKey, err := rsa.GenerateKey(rand.Reader, 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err != nil {
+			t.Fatal(err)
 		}
 
 		skCertParams := sk.CertificationParameters()
@@ -84,7 +92,7 @@ func testCertificationParameters(t *testing.T, tpm *TPM) {
 		for _, test := range []struct {
 			name string
 			p    *CertificationParameters
-			opts VerifyOpts
+			opts VerifyConfig
 			err  error
 		}{
 			{
@@ -96,27 +104,16 @@ func testCertificationParameters(t *testing.T, tpm *TPM) {
 			{
 				name: "wrong public key",
 				p:    &skCertParams,
-				opts: VerifyOpts{
-					Public: wrongKey.Public,
-					Hash:   correctOpts.Hash,
-				},
-				err: cmpopts.AnyError,
-			},
-			{
-				name: "wrong hash function",
-				p:    &skCertParams,
-				opts: VerifyOpts{
-					Public: correctOpts.Public,
-					Hash:   wrongHash,
+				opts: VerifyConfig{
+					Public: wrongKey.Public(),
 				},
 				err: cmpopts.AnyError,
 			},
 			{
 				name: "unavailable hash function",
 				p:    &skCertParams,
-				opts: VerifyOpts{
-					Public: correctOpts.Public,
-					Hash:   crypto.BLAKE2b_384,
+				opts: VerifyConfig{
+					Public: unsupportedHashKey.Public(),
 				},
 				err: cmpopts.AnyError,
 			},
@@ -217,17 +214,8 @@ func testKeyCertification(t *testing.T, tpm *TPM) {
 	if err != nil {
 		t.Fatalf("PublicKeyRSA() failed: %v", err)
 	}
-	keyType, err := kty.GetKeyTypeFromPublic(akAttestParams.Public)
-	if err != nil {
-		t.Fatalf("GetKeyTypeFromPublic() failed: %v", err)
-	}
-	hash, err := keyType.Hash()
-	if err != nil {
-		t.Fatalf("cannot access AK's hash function: %v", err)
-	}
-	verifyOpts := VerifyOpts{
+	verifyOpts := VerifyConfig{
 		Public: pk,
-		Hash:   hash,
 	}
 	for _, test := range []struct {
 		name string
@@ -266,14 +254,16 @@ func testKeyCertification(t *testing.T, tpm *TPM) {
 			},
 			err: nil,
 		},
-		// {
-		// 	name: "RSA-1024, key too short",
-		// 	opts: &KeyConfig{
-		// 		Algorithm: RSA,
-		// 		Size:      1024,
-		// 	},
-		// 	err: cmpopts.AnyError,
-		// },
+		{
+			name: "nonce mismatch",
+			opts: []KeyConfig{
+				{
+					KeyType:        kty.ECC_P256,
+					QualifyingData: []byte("awesome nonce"),
+				},
+			},
+			err: cmpopts.AnyError,
+		},
 		{
 			name: kty.RSA_2048.String(),
 			opts: []KeyConfig{
@@ -428,3 +418,360 @@ func testKeyCertification(t *testing.T, tpm *TPM) {
 // 		})
 // 	}
 // }
+
+func TestSimTPMCertificationWithCertificate(t *testing.T) {
+	testCertificationWithCertificate(t, setupSimulatedTPM(t))
+}
+
+func testCertificationWithCertificate(t *testing.T, tpm *TPM) {
+	ca, err := ekca.New()
+	if err != nil {
+		t.Fatalf("ekca.New() failed: %v", err)
+	}
+
+	// Setup root and intermediate pools for verification
+	rootPool := x509.NewCertPool()
+	rootPool.AddCert(ca.Root)
+	intermediatePool := x509.NewCertPool()
+	intermediatePool.AddCert(ca.Intermediate)
+
+	ak, err := tpm.NewAK(AKConfig{Algorithm: algorithm.ECC})
+	if err != nil {
+		t.Fatalf("NewAK() failed: %v", err)
+	}
+
+	akCert := testutil.CreateTPMCertificate(t, testutil.CertConfig{
+		Pub: ak.Public(),
+		CA:  ca,
+	})
+
+	persistCfg := PersistConfig{
+		Handle:      tpmutil.NewHandle(tpm2.TPMHandle(0x81010100)),
+		CertNVIndex: tpmutil.NewHandle(tpm2.TPMHandle(0x01C00100)),
+		Parent:      defaultParentConfig,
+		Certificate: akCert,
+	}
+
+	if err := ak.Persist(tpm, persistCfg); err != nil {
+		ak.Close(tpm)
+		t.Fatalf("Persist() failed: %v", err)
+	}
+
+	loadCfg := LoadConfig{
+		Handle:      persistCfg.Handle,
+		CertNVIndex: persistCfg.CertNVIndex,
+	}
+
+	loadedAK, err := tpm.LoadAKFromTPM(loadCfg)
+	if err != nil {
+		t.Fatalf("LoadAKFromTPM() failed: %v", err)
+	}
+
+	if loadedAK.GetCertificate() == nil {
+		t.Fatal("Loaded AK has no certificate")
+	}
+
+	appKey, err := tpm.NewKey(loadedAK, KeyConfig{KeyType: kty.ECC_P256})
+	if err != nil {
+		t.Fatalf("NewKey() failed: %v", err)
+	}
+	defer appKey.Close()
+
+	// Note: loaded AK is passed to CertificationParameters to include its certificate
+	certParams := appKey.CertificationParameters(loadedAK)
+
+	wrongKey, err := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate wrong key: %v", err)
+	}
+
+	// Create expired certificate
+	expiredNotBefore := time.Now().AddDate(-2, 0, 0) // 2 years ago
+	expiredNotAfter := time.Now().AddDate(-1, 0, 0)  // 1 year ago
+	expiredCert := testutil.CreateTPMCertificate(t, testutil.CertConfig{
+		Pub:       ak.Public(),
+		CA:        ca,
+		NotBefore: &expiredNotBefore,
+		NotAfter:  &expiredNotAfter,
+	})
+
+	tests := []struct {
+		name       string
+		certParams *CertificationParameters
+		cfg        VerifyConfig
+		wantErr    bool
+	}{
+		{
+			name:       "valid certificate with RootPool and IntermediatePool",
+			certParams: &certParams,
+			cfg: VerifyConfig{
+				RootPool:         rootPool,
+				IntermediatePool: intermediatePool,
+			},
+			wantErr: false,
+		},
+		{
+			name: "expired certificate with RootPool and IntermediatePool",
+			certParams: &CertificationParameters{
+				Public:            certParams.Public,
+				CreateAttestation: certParams.CreateAttestation,
+				CreateSignature:   certParams.CreateSignature,
+				Certificate:       expiredCert,
+			},
+			cfg: VerifyConfig{
+				RootPool:         rootPool,
+				IntermediatePool: intermediatePool,
+			},
+			wantErr: true,
+		},
+		{
+			name: "expired certificate with SkipCertificateExpiryCheck",
+			certParams: &CertificationParameters{
+				Public:            certParams.Public,
+				CreateAttestation: certParams.CreateAttestation,
+				CreateSignature:   certParams.CreateSignature,
+				Certificate:       expiredCert,
+			},
+			cfg: VerifyConfig{
+				// Use Public key verification instead of chain verification
+				// because the CA certificates have recent validity dates
+				Public:                     expiredCert.PublicKey,
+				SkipCertificateExpiryCheck: true,
+			},
+			wantErr: false,
+		},
+		{
+			name:       "valid with Public key only",
+			certParams: &certParams,
+			cfg: VerifyConfig{
+				Public: akCert.PublicKey,
+			},
+			wantErr: false,
+		},
+		{
+			name:       "wrong public key",
+			certParams: &certParams,
+			cfg: VerifyConfig{
+				Public: wrongKey.Public(),
+			},
+			wantErr: true,
+		},
+		{
+			name:       "ValidateFunc rejecting key without SignEncrypt",
+			certParams: &certParams,
+			cfg: VerifyConfig{
+				RootPool:         rootPool,
+				IntermediatePool: intermediatePool,
+				ValidateFunc: func(pub *tpm2.TPMTPublic) error {
+					if !pub.ObjectAttributes.SignEncrypt {
+						return errors.New("key does not have SignEncrypt attribute")
+					}
+					return nil
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.certParams.Verify(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Verify() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSimTPMCertifyWithValidation(t *testing.T) {
+	t.Run("AK in Owner hiearchy", func(t *testing.T) {
+		tpm := setupSimulatedTPM(t)
+		certifyingAK, err := tpm.NewAK(AKConfig{Algorithm: algorithm.ECC})
+		if err != nil {
+			t.Fatalf("NewAK() failed: %v", err)
+		}
+		defer certifyingAK.Close(tpm)
+		testCertifyWithValidation(t, tpm, certifyingAK)
+
+	})
+	t.Run("AK in Endorsement hiearchy", func(t *testing.T) {
+		tpm := setupSimulatedTPM(t)
+		ekHandle, err := tpmutil.CreatePrimary(tpm.tpm.(*tpmbase).rwc, tpmutil.CreatePrimaryConfig{
+			PrimaryHandle: tpm2.TPMRHEndorsement,
+			InPublic:      tpmutil.ECCEKTemplate,
+			Auth:          tpmutil.NoAuth,
+		})
+		if err != nil {
+			t.Fatalf("CreatePrimary failed: %v", err)
+		}
+
+		parentCfg := &ParentKeyConfig{
+			Handle: ekHandle,
+			Auth:   tpm2.Policy(tpm2.TPMAlgSHA256, 16, tpmutil.EkPolicyCallback),
+		}
+		certifyingAK, err := tpm.NewAK(AKConfig{Algorithm: algorithm.ECC, Parent: parentCfg})
+		if err != nil {
+			t.Fatalf("NewAK() failed: %v", err)
+		}
+		defer certifyingAK.Close(tpm)
+
+		// required to avoid out-of-memory errors
+		if err := ekHandle.Close(); err != nil {
+			t.Errorf("ekHandle.Close() failed: %v", err)
+		}
+		testCertifyWithValidation(t, tpm, certifyingAK)
+	})
+}
+
+func testCertifyWithValidation(t *testing.T, tpm *TPM, certifyingAK *AK) {
+	akAttestParams := certifyingAK.AttestationParameters()
+	akPub, err := tpmcrypto.PublicKeyECDSA(akAttestParams.Public)
+	if err != nil {
+		t.Fatalf("PublicKeyECDSA() failed: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		setupKey  func(t *testing.T) (*CertificationParameters, func())
+		validates map[string]bool // which ValidateFunc should pass
+	}{
+		{
+			name: "SRK (Storage Root Key)",
+			setupKey: func(t *testing.T) (*CertificationParameters, func()) {
+				t.Helper()
+				srkHandle, err := tpmutil.GetSRKHandle(tpm.Tpm(), tpmutil.ParentConfig{})
+				if err != nil {
+					t.Fatalf("GetSRKHandle() failed: %v", err)
+				}
+
+				handleClose, err := tpmutil.GetPersistedKeyHandle(tpm.Tpm(), tpmutil.GetPersistedKeyHandleConfig{
+					Handle: srkHandle,
+				})
+				if err != nil {
+					t.Fatalf("GetPersistedKeyHandle() failed: %v", err)
+				}
+
+				if handleClose.Public() == nil {
+					t.Fatalf("handle.Public() is nil")
+				}
+
+				certParams, err := certifyingAK.Certify(tpm, CertifyConfig{
+					Handle: handleClose,
+				})
+				if err != nil {
+					t.Fatalf("Certify() failed: %v", err)
+				}
+
+				return certParams, func() {
+					if err := handleClose.Close(); err != nil {
+						t.Errorf("CloseHandle() failed: %v", err)
+					}
+				}
+			},
+			validates: map[string]bool{
+				"SRK":           true,
+				"AK":            false,
+				"SigningAppKey": false,
+				"EK":            false,
+			},
+		},
+		{
+			name: "AK (Attestation Key)",
+			setupKey: func(t *testing.T) (*CertificationParameters, func()) {
+				t.Helper()
+				ak2, err := tpm.NewAK(AKConfig{Algorithm: algorithm.ECC})
+				if err != nil {
+					t.Fatalf("NewAK() failed: %v", err)
+				}
+
+				wk, ok := ak2.ak.(*wrappedKey)
+				if !ok {
+					t.Fatal("failed to access internal wrappedKey")
+				}
+
+				certParams, err := certifyingAK.Certify(tpm, CertifyConfig{
+					Handle: wk.hnd,
+				})
+				if err != nil {
+					t.Fatalf("Certify() failed: %v", err)
+				}
+
+				return certParams, func() {
+					if err := ak2.Close(tpm); err != nil {
+						t.Errorf("ak.Close() failed: %v", err)
+					}
+				}
+			},
+			validates: map[string]bool{
+				"SRK":           false,
+				"AK":            true,
+				"SigningAppKey": false,
+			},
+		},
+		{
+			name: "Application Signing Key",
+			setupKey: func(t *testing.T) (*CertificationParameters, func()) {
+				t.Helper()
+				appKey, err := tpm.NewKey(certifyingAK, KeyConfig{KeyType: kty.ECC_P256})
+				if err != nil {
+					t.Fatalf("NewKey() failed: %v", err)
+				}
+
+				wk, ok := appKey.key.(*wrappedKey)
+				if !ok {
+					t.Fatal("failed to access internal wrappedKey")
+				}
+
+				certParams, err := certifyingAK.Certify(tpm, CertifyConfig{
+					Handle: wk.hnd,
+				})
+				if err != nil {
+					t.Fatalf("Certify() failed: %v", err)
+				}
+
+				return certParams, func() {
+					if err := appKey.Close(); err != nil {
+						t.Errorf("appKey.Close() failed: %v", err)
+					}
+				}
+			},
+			validates: map[string]bool{
+				"SRK":           false,
+				"AK":            false,
+				"SigningAppKey": true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			certParams, cleanup := tt.setupKey(t)
+			defer cleanup()
+
+			validateFuncs := map[string]func(*tpm2.TPMTPublic) error{
+				"SRK":           SRKValidateFunc,
+				"AK":            AKValidateFunc,
+				"SigningAppKey": SigningAppKeyFunc,
+			}
+
+			for funcName, validateFunc := range validateFuncs {
+				t.Run(funcName, func(t *testing.T) {
+					shouldPass := tt.validates[funcName]
+
+					verifyOpts := VerifyConfig{
+						Public:       akPub,
+						ValidateFunc: validateFunc,
+					}
+
+					err := certParams.Verify(verifyOpts)
+					if shouldPass && err != nil {
+						t.Errorf("Verify() with %s should pass but got error: %v", funcName, err)
+					}
+					if !shouldPass && err == nil {
+						t.Errorf("Verify() with %s should fail but passed", funcName)
+					}
+				})
+			}
+		})
+	}
+}

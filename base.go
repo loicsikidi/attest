@@ -24,7 +24,6 @@ import (
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/endorsement"
 	"github.com/loicsikidi/attest/info"
-	"github.com/loicsikidi/attest/kty"
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/attest/storage"
 
@@ -43,12 +42,6 @@ type tpmbase struct {
 	// cacheInfo caches the TPMInfo at startup.
 	// Use this cache only for immutable TPM properties (e.g., PCR banks, Manufacturer, etc.).
 	cacheInfo *info.TPMInfo
-}
-
-// certifyingKey contains details of a TPM key that could certify other keys.
-type certifyingKey struct {
-	handle  tpmutil.Handle
-	keyType kty.KeyType
 }
 
 func (t *tpmbase) tpm() transport.TPM {
@@ -130,13 +123,11 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 		defer tpmutil.CloseHandle(t.tpm(), parentHandle) //nolint:errcheck // ignore error on close
 	}
 
-	// The default is RSA.
-	var akTemplate tpm2.TPMTPublic
+	akTemplate := akTemplateRSA
 	if slices.Contains([]algorithm.Algorithm{algorithm.ECDSA, algorithm.ECC}, opts.Algorithm) {
 		akTemplate = akTemplateECC
-	} else {
-		akTemplate = akTemplateRSA
 	}
+
 	sigScheme, err := tpmcrypto.GetSigSchemeFromPublic(akTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get signature scheme from AK template: %w", err)
@@ -324,15 +315,11 @@ func (t *tpmbase) newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
 		return nil, fmt.Errorf("expected *wrappedKey, got: %T", k)
 	}
 
-	akKty, err := k.keyType()
-	if err != nil {
-		return nil, fmt.Errorf("keyType() failed: %w", err)
-	}
-	ck := certifyingKey{handle: k.hnd, keyType: akKty}
-	return t.newKeyCertifiedByKey(ck, optionalCfg...)
+	certifier := newCertifyingKey(k, ak.certificate)
+	return t.newKeyCertifiedByKey(certifier, optionalCfg...)
 }
 
-func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfig) (*Key, error) {
+func (t *tpmbase) newKeyCertifiedByKey(certifier certifier, optionalCfg ...KeyConfig) (*Key, error) {
 	opts := utils.OptionalArg(optionalCfg)
 	parentHnd, createResult, err := createKey(t, opts)
 	if err != nil {
@@ -362,10 +349,13 @@ func (t *tpmbase) newKeyCertifiedByKey(ck certifyingKey, optionalCfg ...KeyConfi
 	}()
 
 	// Certify application key by AK
-	certifyOpts := CertifyOpts{QualifyingData: opts.QualifyingData}
-	cp, err := certifyByKey(t, keyHnd, ck, certifyOpts)
+	cp, err := certify(t.rwc, CertifyConfig{
+		Handle:         keyHnd,
+		QualifyingData: opts.QualifyingData,
+		certifier:      certifier,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("certifyByKey() failed: %v", err)
+		return nil, fmt.Errorf("certify() failed: %v", err)
 	}
 
 	if !bytes.Equal(tpm2.Marshal(pub), tpm2.Marshal(cp.Public)) {
