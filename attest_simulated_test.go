@@ -298,7 +298,7 @@ func TestSimAKCreateAndLoadWithCustomParent(t *testing.T) {
 
 			parentCfg := &ParentKeyConfig{
 				Handle: ekHandle,
-				Auth:   tpm2.Policy(tpm2.TPMAlgSHA256, 16, tpmutil.EkPolicyCallback),
+				Auth:   tpm2.Policy(tt.template.Public.NameAlg, 16 /* nonceSize */, tpmutil.EkPolicyACallback),
 			}
 
 			testAKCreateAndLoad(t, tpm, []AKConfig{{Parent: parentCfg}}, parentCfg)

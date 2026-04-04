@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-tpm v0.9.8
-	github.com/loicsikidi/go-tpm-kit v0.5.1-0.20260404114503-2ee7179eba01
+	github.com/loicsikidi/go-tpm-kit v0.5.1-0.20260404210732-e7c759189c9a
 )
 
 require (
