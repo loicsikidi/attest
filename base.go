@@ -18,6 +18,7 @@ package attest
 import (
 	"bytes"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -201,7 +202,7 @@ func (t *tpmbase) getStorageRootKeyHandle(parent ParentKeyConfig) (tpmutil.Handl
 	})
 }
 
-func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handle, error) {
+func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (tpmutil.Handle, error) {
 	var (
 		family     tpmutil.KeyFamily
 		kty        tpmutil.KeyType
@@ -225,25 +226,28 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (handl
 		}
 	}
 
-	readPublicRsp, err := tpm2.ReadPublic{
-		ObjectHandle: ekHandle,
-	}.Execute(t.rwc)
-	if err == nil {
-		// Found the persistent handle, assume it's the key we want.
-		return &tpm2.NamedHandle{Name: readPublicRsp.Name, Handle: ekHandle}, nil
-	}
-
-	handle, err := tpmutil.PersistEK(t.rwc, tpmutil.EKParentConfig{
-		KeyFamily:  family,
-		IsLowRange: isLowRange,
-		Handle:     tpmutil.NewHandle(ekHandle),
-		KeyType:    kty,
+	persistentHandle, err := tpmutil.GetPersistedKeyHandle(t.rwc, tpmutil.GetPersistedKeyHandleConfig{
+		Handle: tpmutil.NewHandle(ekHandle),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("persist EK failed: %w", err)
-	}
+		var target *tpmutil.ErrHandleNotFound
+		if errors.As(err, &target) {
+			// Let's persist it
+			handle, err := tpmutil.PersistEK(t.rwc, tpmutil.EKParentConfig{
+				KeyFamily:  family,
+				IsLowRange: isLowRange,
+				Handle:     tpmutil.NewHandle(ekHandle),
+				KeyType:    kty,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("persist EK failed: %w", err)
+			}
+			return handle, nil
+		}
+		return nil, fmt.Errorf("get persisted EK handle failed: %w", err)
 
-	return handle, nil
+	}
+	return persistentHandle, nil
 }
 
 func (t *tpmbase) deserializeAndLoad(opaqueBlob []byte, parent ParentKeyConfig) (tpmutil.HandleCloser, *storage.SerializedKey, error) {
