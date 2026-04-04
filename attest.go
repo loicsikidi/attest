@@ -53,14 +53,6 @@ var (
 	ErrAttestNotImplemented = errors.New("attest lib is only implemented for Linux")
 )
 
-// copy interface from tpm2 library
-type handle interface {
-	// HandleValue is the numeric concrete handle value in the TPM.
-	HandleValue() uint32
-	// KnownName is the TPM Name of the associated entity. See Part 1, section 16.
-	KnownName() *tpm2.TPM2BName
-}
-
 // OpenTPM initializes access to the TPM based on the
 // config provided.
 func OpenTPM(optionalCfg ...OpenConfig) (*TPM, error) {
