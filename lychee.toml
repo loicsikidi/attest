@@ -1,0 +1,8 @@
+extensions = ["md"]
+timeout = 30 # in seconds
+header = { "accept" = "text/html" }
+accept = [
+    "200..=202",
+    "403", # TCG's website blocks bot scrapper
+]
+exclude = []
