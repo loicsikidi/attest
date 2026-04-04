@@ -16,6 +16,7 @@
 package attest
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -31,7 +32,8 @@ import (
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/loicsikidi/go-tpm-kit/tpmcert/ekca"
-	tpmcrypto "github.com/loicsikidi/go-tpm-kit/tpmcrypto"
+	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
+	"github.com/loicsikidi/go-tpm-kit/tpmtest"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-cmp/cmp"
@@ -297,127 +299,172 @@ func testKeyCertification(t *testing.T, tpm *TPM) {
 	}
 }
 
-// func TestKeyActivationTPM20(t *testing.T) {
-// 	tpm := setupSimulatedTPM(t)
-// 	defer tpm.Close()
+func TestKeyActivation(t *testing.T) {
+	tpm := setupSimulatedTPM(t)
 
-// 	ak, err := tpm.NewAK(nil)
-// 	if err != nil {
-// 		t.Fatalf("error creating a new AK using simulated TPM: %v", err)
-// 	}
-// 	akAttestParams := ak.AttestationParameters()
-// 	pub, err := tpm2.DecodePublic(akAttestParams.Public)
-// 	if err != nil {
-// 		t.Fatalf("unable to decode public struct from AK attestation params: %v", err)
-// 	}
-// 	if pub.Type != tpm2.AlgRSA {
-// 		t.Fatal("non-RSA verifying key")
-// 	}
+	ak, err := tpm.NewAK(AKConfig{Algorithm: algorithm.ECC})
+	if err != nil {
+		t.Fatalf("error creating a new AK using simulated TPM: %v", err)
+	}
+	akAttestParams := ak.AttestationParameters()
+	eks, err := tpm.EKs()
+	if err != nil {
+		t.Fatalf("unexpected error retrieving EK from tpm: %v", err)
+	}
 
-// 	eks, err := tpm.EKs()
-// 	if err != nil {
-// 		t.Fatalf("unexpected error retrieving EK from tpm: %v", err)
-// 	}
+	if len(eks) == 0 {
+		t.Fatal("expected at least one EK from the simulated TPM")
+	}
 
-// 	if len(eks) == 0 {
-// 		t.Fatal("expected at least one EK from the simulated TPM")
-// 	}
+	pk, err := tpmcrypto.PublicKeyECDSA(akAttestParams.Public)
+	if err != nil {
+		t.Fatalf("unable to get ECDSA public key from AK attestation params: %v", err)
+	}
+	verifyOpts := VerifyConfig{
+		Public: pk,
+	}
 
-// 	pk := &rsa.PublicKey{E: int(pub.RSAParameters.Exponent()), N: pub.RSAParameters.Modulus()}
-// 	hash, err := pub.RSAParameters.Sign.Hash.Hash()
-// 	if err != nil {
-// 		t.Fatalf("unable to compute hash signature from verifying key's RSA parameters: %v", err)
-// 	}
-// 	verifyOpts := VerifyOpts{
-// 		Public: pk,
-// 		Hash:   hash,
-// 	}
+	sk, err := tpm.NewKey(ak)
+	if err != nil {
+		t.Fatalf("unable to create a new TPM-backed key to certify: %v", err)
+	}
 
-// 	sk, err := tpm.NewKey(ak, nil)
-// 	if err != nil {
-// 		t.Fatalf("unable to create a new TPM-backed key to certify: %v", err)
-// 	}
+	skCertParams := sk.CertificationParameters()
+	activateOpts, err := NewActivateConfig(akAttestParams.Public, eks[0].Public)
+	if err != nil {
+		t.Fatalf("unable to create new ActivateOpts: %v", err)
+	}
 
-// 	skCertParams := sk.CertificationParameters()
-// 	activateOpts, err := NewActivateOpts(pub, eks[0].Public)
-// 	if err != nil {
-// 		t.Fatalf("unable to create new ActivateOpts: %v", err)
-// 	}
+	wrongActivateOpts, err := NewActivateConfig(skCertParams.Public, eks[0].Public)
+	if err != nil {
+		t.Fatalf("unable to create wrong ActivateOpts: %v", err)
+	}
 
-// 	wrongPub, err := tpm2.DecodePublic(skCertParams.Public)
-// 	if err != nil {
-// 		t.Fatalf("unable to decode public struct from CertificationParameters: %v", err)
-// 	}
+	for _, test := range []struct {
+		name         string
+		p            *CertificationParameters
+		verifyOpts   VerifyConfig
+		activateOpts ActivateConfig
+		generateErr  error
+		activateErr  error
+	}{
+		{
+			name:         "OK",
+			p:            &skCertParams,
+			verifyOpts:   verifyOpts,
+			activateOpts: *activateOpts,
+			generateErr:  nil,
+			activateErr:  nil,
+		},
+		{
+			name:         "invalid verify opts",
+			p:            &skCertParams,
+			verifyOpts:   VerifyConfig{},
+			activateOpts: *activateOpts,
+			generateErr:  cmpopts.AnyError,
+			activateErr:  nil,
+		},
+		{
+			name:         "invalid activate opts",
+			p:            &skCertParams,
+			verifyOpts:   verifyOpts,
+			activateOpts: *wrongActivateOpts,
+			generateErr:  nil,
+			activateErr:  cmpopts.AnyError,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			expectedSecret, encryptedCredentials, err := test.p.Generate(rand.Reader, test.verifyOpts, test.activateOpts)
+			if test.generateErr != nil {
+				if got, want := err, test.generateErr; !cmp.Equal(got, want, cmpopts.EquateErrors()) {
+					t.Errorf("p.Generate() err = %v, want = %v", got, want)
+				}
 
-// 	wrongActivateOpts, err := NewActivateOpts(wrongPub, eks[0].Public)
-// 	if err != nil {
-// 		t.Fatalf("unable to create wrong ActivateOpts: %v", err)
-// 	}
+				return
+			} else if err != nil {
+				t.Errorf("unexpected p.Generate() error: %v", err)
+				return
+			}
 
-// 	for _, test := range []struct {
-// 		name         string
-// 		p            *CertificationParameters
-// 		verifyOpts   VerifyOpts
-// 		activateOpts ActivateOpts
-// 		generateErr  error
-// 		activateErr  error
-// 	}{
-// 		{
-// 			name:         "OK",
-// 			p:            &skCertParams,
-// 			verifyOpts:   verifyOpts,
-// 			activateOpts: *activateOpts,
-// 			generateErr:  nil,
-// 			activateErr:  nil,
-// 		},
-// 		{
-// 			name:         "invalid verify opts",
-// 			p:            &skCertParams,
-// 			verifyOpts:   VerifyOpts{},
-// 			activateOpts: *activateOpts,
-// 			generateErr:  cmpopts.AnyError,
-// 			activateErr:  nil,
-// 		},
-// 		{
-// 			name:         "invalid activate opts",
-// 			p:            &skCertParams,
-// 			verifyOpts:   verifyOpts,
-// 			activateOpts: *wrongActivateOpts,
-// 			generateErr:  nil,
-// 			activateErr:  cmpopts.AnyError,
-// 		},
-// 	} {
-// 		t.Run(test.name, func(t *testing.T) {
-// 			expectedSecret, encryptedCredentials, err := test.p.Generate(rand.Reader, test.verifyOpts, test.activateOpts)
-// 			if test.generateErr != nil {
-// 				if got, want := err, test.generateErr; !cmp.Equal(got, want, cmpopts.EquateErrors()) {
-// 					t.Errorf("p.Generate() err = %v, want = %v", got, want)
-// 				}
+			actualSecret, err := ak.ActivateCredential(tpm, *encryptedCredentials)
+			if test.activateErr != nil {
+				if got, want := err, test.activateErr; !cmp.Equal(got, want, cmpopts.EquateErrors()) {
+					t.Errorf("p.ActivateCredential() err = %v, want = %v", got, want)
+				}
 
-// 				return
-// 			} else if err != nil {
-// 				t.Errorf("unexpected p.Generate() error: %v", err)
-// 				return
-// 			}
+				return
+			} else if err != nil {
+				t.Errorf("unexpected p.ActivateCredential() error: %v", err)
+				return
+			}
 
-// 			actualSecret, err := ak.ActivateCredential(tpm, *encryptedCredentials)
-// 			if test.activateErr != nil {
-// 				if got, want := err, test.activateErr; !cmp.Equal(got, want, cmpopts.EquateErrors()) {
-// 					t.Errorf("p.ActivateCredential() err = %v, want = %v", got, want)
-// 				}
+			if !bytes.Equal(expectedSecret, actualSecret) {
+				t.Fatalf("Unexpected bytes decoded, expected %x, but got %x", expectedSecret, actualSecret)
+			}
+		})
+	}
+}
 
-// 				return
-// 			} else if err != nil {
-// 				t.Errorf("unexpected p.ActivateCredential() error: %v", err)
-// 				return
-// 			}
+func TestKeyActivationWithMultipleEKs(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		tpmCfg []tpmtest.Template
+	}{
+		{
+			name:   "ECC Low Range",
+			tpmCfg: []tpmtest.Template{tpmtest.TemplateECC},
+		},
+		{
+			name:   "RSA Low Range",
+			tpmCfg: []tpmtest.Template{tpmtest.TemplateRSA},
+		},
+		{
+			name:   "ECC P-256 High Range",
+			tpmCfg: []tpmtest.Template{tpmtest.TemplateECCP256},
+		},
+		{
+			name:   "ECC P-384 High Range",
+			tpmCfg: []tpmtest.Template{tpmtest.TemplateECCP384},
+		},
+		{
+			name:   "RSA High Range",
+			tpmCfg: []tpmtest.Template{tpmtest.TemplateRSA2048},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tpm := setupSimulatedTPM(t, tpmtest.OpenConfig{EKCerts: test.tpmCfg})
 
-// 			if !bytes.Equal(expectedSecret, actualSecret) {
-// 				t.Fatalf("Unexpected bytes decoded, expected %x, but got %x", expectedSecret, actualSecret)
-// 			}
-// 		})
-// 	}
-// }
+			ak, err := tpm.NewAK(AKConfig{Algorithm: algorithm.ECC})
+			if err != nil {
+				t.Fatalf("error creating a new AK using simulated TPM: %v", err)
+			}
+
+			eks, err := tpm.EKs()
+			if err != nil {
+				t.Fatalf("unexpected error retrieving EK from tpm: %v", err)
+			}
+			ek := eks[0]
+
+			params, err := NewActivationParameters(ek, ak.AttestationParameters())
+			if err != nil {
+				t.Fatalf("unable to create new ActivationParameters: %v", err)
+			}
+			secret, challenge, err := params.Generate()
+			if err != nil {
+				t.Fatalf("unable to generate activation parameters: %v", err)
+			}
+
+			actualSecret, err := ak.ActivateCredentialWithEK(tpm, *challenge, ek)
+			if err != nil {
+				t.Fatalf("unable to activate credential with EK: %v", err)
+			}
+
+			if !bytes.Equal(secret, actualSecret) {
+				t.Fatalf("Unexpected bytes decoded, expected %x, but got %x", secret, actualSecret)
+			}
+		})
+	}
+}
 
 func TestSimTPMCertificationWithCertificate(t *testing.T) {
 	testCertificationWithCertificate(t, setupSimulatedTPM(t))
@@ -596,9 +643,11 @@ func TestSimTPMCertifyWithValidation(t *testing.T) {
 	})
 	t.Run("AK in Endorsement hiearchy", func(t *testing.T) {
 		tpm := setupSimulatedTPM(t)
+
+		ekTemplate := tpmutil.ECCEKTemplate
 		ekHandle, err := tpmutil.CreatePrimary(tpm.tpm.(*tpmbase).rwc, tpmutil.CreatePrimaryConfig{
 			PrimaryHandle: tpm2.TPMRHEndorsement,
-			InPublic:      tpmutil.ECCEKTemplate,
+			InPublic:      ekTemplate,
 			Auth:          tpmutil.NoAuth,
 		})
 		if err != nil {
@@ -607,7 +656,7 @@ func TestSimTPMCertifyWithValidation(t *testing.T) {
 
 		parentCfg := &ParentKeyConfig{
 			Handle: ekHandle,
-			Auth:   tpm2.Policy(tpm2.TPMAlgSHA256, 16, tpmutil.EkPolicyCallback),
+			Auth:   tpm2.Policy(ekTemplate.NameAlg, 16 /* nonceSize */, tpmutil.EkPolicyACallback),
 		}
 		certifyingAK, err := tpm.NewAK(AKConfig{Algorithm: algorithm.ECC, Parent: parentCfg})
 		if err != nil {

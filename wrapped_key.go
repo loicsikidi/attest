@@ -185,12 +185,29 @@ func (k *wrappedKey) activateCredential(tb tpmBase, in EncryptedCredential, ek *
 		return nil, err
 	}
 
+	var (
+		policy  tpm2.PolicyCallback
+		hashAlg tpm2.TPMIAlgHash
+	)
+	switch {
+	case ek != nil:
+		if ek.Template.IsLowRange() {
+			policy = tpmutil.EkPolicyACallback
+		} else {
+			policy = tpmutil.EkPolicyBViaACallback(ek.Public.NameAlg)
+		}
+		hashAlg = ek.Public.NameAlg
+	default: // when ek is nil we fallback to RSA 2048 (low range) key
+		policy = tpmutil.EkPolicyACallback
+		hashAlg = tpm2.TPMAlgSHA256
+	}
+
 	// Get the challenge decrypted.
 	activateRsp, err := tpm2.ActivateCredential{
 		KeyHandle: tpm2.AuthHandle{
 			Handle: tpm2.TPMHandle(ekHandle.HandleValue()),
 			Name:   *ekHandle.KnownName(),
-			Auth:   tpm2.Policy(tpm2.TPMAlgSHA256, 16, tpmutil.EkPolicyCallback),
+			Auth:   tpm2.Policy(hashAlg, 16 /* nonceSize */, policy),
 		},
 		ActivateHandle: k.hnd,
 		CredentialBlob: tpm2.TPM2BIDObject{
