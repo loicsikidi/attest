@@ -299,11 +299,12 @@ func (k *wrappedKey) certificationParameters(optionalAK ...*AK) CertificationPar
 	// TODO(lsikidi): harmonize type between wrappedKey CertificationParameters to avoid cast
 	pub, _ := k.tpmPublic()
 	att, _ := k.createAttestation.Contents()
+
 	var cert *x509.Certificate
-	ak := utils.OptionalArg(optionalAK)
-	if ak != nil {
+	if ak := utils.OptionalArg(optionalAK); ak != nil {
 		cert = ak.GetCertificate()
 	}
+
 	return CertificationParameters{
 		Public:            pub,
 		CreateAttestation: att,
