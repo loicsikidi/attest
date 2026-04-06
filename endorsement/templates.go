@@ -11,8 +11,13 @@ import (
 type Template struct {
 	// Index is the NV index pointing to the EK certificate.
 	Index tpm2.TPMHandle
+
 	// Public is the public area template for this EK
 	Public tpm2.TPMTPublic
+
+	// originalIsLowRange stores the original low-range status of the template.
+	// This is used to preserve the original state when the EK certificate index is updated.
+	originalIsLowRange *bool
 }
 
 // Type returns the TPM algorithm ID (ECC or RSA) associated with this template.
@@ -22,12 +27,23 @@ func (t Template) Type() tpm2.TPMAlgID {
 
 // IsLowRange returns whether this template is for a low-range EK certificate.
 func (t Template) IsLowRange() bool {
+	if t.originalIsLowRange != nil {
+		return *t.originalIsLowRange
+	}
+
 	switch t.Index {
 	case RSACertIndex, ECCCertIndex:
 		return true
 	default:
 		return false
 	}
+}
+
+// SetEKCertIndex sets the NV index for the EK certificate and preserves the original low-range status.
+func (t *Template) SetEKCertIndex(index tpm2.TPMHandle) {
+	isLowRange := t.IsLowRange()
+	t.originalIsLowRange = &isLowRange
+	t.Index = index
 }
 
 // Predefined EK templates.
