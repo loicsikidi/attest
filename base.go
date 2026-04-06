@@ -219,10 +219,14 @@ func (t *tpmbase) getEndorsementKeyHandle(endorsementKey *endorsement.EK) (tpmut
 		family = endorsementKey.KeyFamily()
 		isLowRange = endorsementKey.Template.IsLowRange()
 		kty = tpmutil.MustPublicToKeyType(*endorsementKey.Public)
-		var ok bool
-		ekHandle, ok = endorsement.HandleByType[endorsementKey.Public.Type]
-		if !ok {
-			return nil, fmt.Errorf("unsupported public key type %#x", endorsementKey.Public.Type)
+		if endorsementKey.Handle != nil {
+			ekHandle = endorsementKey.Handle.Handle()
+		} else {
+			var ok bool
+			ekHandle, ok = endorsement.HandleByType[endorsementKey.Public.Type]
+			if !ok {
+				return nil, fmt.Errorf("unsupported public key type %#x", endorsementKey.Public.Type)
+			}
 		}
 	}
 
