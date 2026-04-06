@@ -413,7 +413,9 @@ func GetTemplate(pub *tpm2.TPMTPublic) (*Template, error) {
 	}
 	for _, template := range templates {
 		if isTemplateMatch(pub, template) {
-			return &template, nil
+			// Return a copy to prevent modification of the original template
+			templateCopy := template
+			return &templateCopy, nil
 		}
 	}
 	return nil, fmt.Errorf("no matching template found for public key")
