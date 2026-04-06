@@ -41,7 +41,7 @@ import (
 var (
 	defaultParentConfig = ParentKeyConfig{
 		SRKAlgorithm: algorithm.RSA,
-		SRKHandle:    0x81000001,
+		SRKHandle:    SRKHandle,
 		Auth:         tpmutil.NoAuth,
 	}
 	// ErrTPMNotAvailable is returned in response to OpenTPM() when
