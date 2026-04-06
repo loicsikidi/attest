@@ -88,6 +88,9 @@ type EK struct {
 
 	// Template is the template used to create the EK.
 	Template Template
+
+	// Handle is the TPM handle associated with the EK.
+	Handle tpmutil.Handle
 }
 
 // GetCertificate returns the EK certificate or nil if not available.

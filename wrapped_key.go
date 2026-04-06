@@ -180,9 +180,15 @@ func (k *wrappedKey) activateCredential(tb tpmBase, in EncryptedCredential, ek *
 		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
 	}
 
-	ekHandle, err := t.getEndorsementKeyHandle(ek)
-	if err != nil {
-		return nil, err
+	var ekHandle tpmutil.Handle
+	if ek != nil && ek.Handle != nil {
+		ekHandle = ek.Handle
+	} else {
+		var err error
+		ekHandle, err = t.getEndorsementKeyHandle(ek)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var (
