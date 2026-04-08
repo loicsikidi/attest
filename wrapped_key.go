@@ -94,7 +94,7 @@ func newWrappedKeyFromPersisted(hnd tpmutil.HandleCloser, public tpm2.TPM2BPubli
 	}
 }
 
-func (k *wrappedKey) close(_ tpmBase) error {
+func (k *wrappedKey) close() error {
 	return k.hnd.Close()
 }
 
