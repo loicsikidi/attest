@@ -1047,7 +1047,7 @@ func TestSimKeyPersistAndLoad(t *testing.T) {
 			}
 			hashed := h.Sum(nil)
 
-			signer, err := loadedKey.Private(loadedKey.Public())
+			signer, err := loadedKey.Private()
 			if err != nil {
 				t.Fatalf("Private() failed: %v", err)
 			}

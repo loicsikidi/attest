@@ -17,8 +17,6 @@ package attest
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/rsa"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -101,19 +99,7 @@ func (k *Key) Public() crypto.PublicKey {
 
 // Private returns an object allowing to use the TPM-backed private key.
 // For now it implements only crypto.Signer.
-func (k *Key) Private(pub crypto.PublicKey) (crypto.PrivateKey, error) {
-	switch pub.(type) {
-	case *rsa.PublicKey:
-		if _, ok := k.pub.(*rsa.PublicKey); !ok {
-			return nil, fmt.Errorf("incompatible public key types: %T != %T", pub, k.pub)
-		}
-	case *ecdsa.PublicKey:
-		if _, ok := k.pub.(*ecdsa.PublicKey); !ok {
-			return nil, fmt.Errorf("incompatible public key types: %T != %T", pub, k.pub)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported public key type: %T", pub)
-	}
+func (k *Key) Private() (crypto.PrivateKey, error) {
 	return &signer{k.key, k.pub, k.tpm}, nil
 }
 
