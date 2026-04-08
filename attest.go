@@ -106,7 +106,7 @@ func (k *AK) Public() crypto.PublicKey {
 }
 
 // Close unloads the AK from the system.
-func (k *AK) Close(t *TPM) error {
+func (k *AK) Close() error {
 	return k.ak.close()
 }
 

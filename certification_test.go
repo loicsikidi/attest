@@ -162,7 +162,7 @@ func testCertificationParameters(t *testing.T, tpm *TPM) {
 		}
 
 		// cleanup TPM's resources
-		if err := ak.Close(tpm); err != nil {
+		if err := ak.Close(); err != nil {
 			t.Fatalf("ak.Close() failed: %v", err)
 		}
 		if err := sk.Close(); err != nil {
@@ -500,7 +500,7 @@ func testCertificationWithCertificate(t *testing.T, tpm *TPM) {
 	}
 
 	if err := ak.Persist(tpm, persistCfg); err != nil {
-		ak.Close(tpm)
+		ak.Close()
 		t.Fatalf("Persist() failed: %v", err)
 	}
 
@@ -637,7 +637,7 @@ func TestSimTPMCertifyWithValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAK() failed: %v", err)
 		}
-		defer certifyingAK.Close(tpm)
+		defer certifyingAK.Close()
 		testCertifyWithValidation(t, tpm, certifyingAK)
 
 	})
@@ -662,7 +662,7 @@ func TestSimTPMCertifyWithValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAK() failed: %v", err)
 		}
-		defer certifyingAK.Close(tpm)
+		defer certifyingAK.Close()
 
 		// required to avoid out-of-memory errors
 		if err := ekHandle.Close(); err != nil {
@@ -746,7 +746,7 @@ func testCertifyWithValidation(t *testing.T, tpm *TPM, certifyingAK *AK) {
 				}
 
 				return certParams, func() {
-					if err := ak2.Close(tpm); err != nil {
+					if err := ak2.Close(); err != nil {
 						t.Errorf("ak.Close() failed: %v", err)
 					}
 				}

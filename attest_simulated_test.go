@@ -213,10 +213,10 @@ func testAKCreateAndLoad(t *testing.T, tpm *TPM, akOpts []AKConfig, parentCfg *P
 
 	enc, err := ak.Marshal()
 	if err != nil {
-		ak.Close(tpm)
+		ak.Close()
 		t.Fatalf("ak.Marshal() failed: %v", err)
 	}
-	if err := ak.Close(tpm); err != nil {
+	if err := ak.Close(); err != nil {
 		t.Fatalf("ak.Close() failed: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func testAKCreateAndLoad(t *testing.T, tpm *TPM, akOpts []AKConfig, parentCfg *P
 	if err != nil {
 		t.Fatalf("LoadAK() failed: %v", err)
 	}
-	defer loaded.Close(tpm)
+	defer loaded.Close()
 
 	k1, k2 := ak.ak.(*wrappedKey), loaded.ak.(*wrappedKey)
 
@@ -330,7 +330,7 @@ func testActivateCredential(t *testing.T, useEK bool) {
 	if err != nil {
 		t.Fatalf("NewAK() failed: %v", err)
 	}
-	defer ak.Close(tpm)
+	defer ak.Close()
 
 	ap, err := NewActivationParameters(ek, ak.AttestationParameters())
 	if err != nil {
@@ -365,7 +365,7 @@ func TestParseAKPublic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAK() failed: %v", err)
 	}
-	defer ak.Close(tpm)
+	defer ak.Close()
 	params := ak.AttestationParameters()
 	if _, err := ParseAKPublic(*params.Public); err != nil {
 		t.Errorf("parsing AK public blob: %v", err)
@@ -380,7 +380,7 @@ func TestParseAKPublic(t *testing.T) {
 // 	if err != nil {
 // 		t.Fatalf("NewAK() failed: %v", err)
 // 	}
-// 	defer ak.Close(tpm)
+// 	defer ak.Close()
 
 // 	nonce := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 // 	quote256, err := ak.Quote(tpm, nonce, HashSHA256)
@@ -427,7 +427,7 @@ func TestParseAKPublic(t *testing.T) {
 // 	if err != nil {
 // 		t.Fatalf("NewAK() failed: %v", err)
 // 	}
-// 	defer ak.Close(tpm)
+// 	defer ak.Close()
 
 // 	nonce := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 // 	attestation, err := tpm.attestPlatform(ak, nonce, nil)
@@ -565,7 +565,7 @@ func TestSignMsg(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewAK() failed: %v", err)
 			}
-			defer ak.Close(tpm)
+			defer ak.Close()
 
 			msg := []byte("hello world")
 			hash := tt.args.opts.HashFunc()
@@ -671,7 +671,7 @@ func TestSimQuote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAK() failed: %v", err)
 	}
-	defer ak.Close(tpm)
+	defer ak.Close()
 
 	nonce := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	q, err := ak.QuotePCRs(tpm, nonce, tpm2.TPMAlgSHA256, selection)
@@ -827,7 +827,7 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 			}
 
 			if err := ak.Persist(tpm, persistCfg); err != nil {
-				ak.Close(tpm)
+				ak.Close()
 				t.Fatalf("Persist() failed: %v", err)
 			}
 
@@ -842,10 +842,10 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 
 			loadedAK, err := tpm.LoadAKFromTPM(loadCfg)
 			if err != nil {
-				loadedAK.Close(tpm)
+				loadedAK.Close()
 				t.Fatalf("LoadAKFromTPM() failed: %v", err)
 			}
-			defer loadedAK.Close(tpm)
+			defer loadedAK.Close()
 
 			pubKey := originalPub.(interface{ Equal(x crypto.PublicKey) bool })
 			if !pubKey.Equal(loadedAK.Public()) {
@@ -945,7 +945,7 @@ func TestSimKeyPersistAndLoad(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewAK() failed: %v", err)
 			}
-			defer ak.Close(tpm)
+			defer ak.Close()
 
 			key, err := tpm.NewKey(ak, tt.keyConfig...)
 			if err != nil {
