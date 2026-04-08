@@ -340,6 +340,10 @@ func (k *wrappedKey) decrypt(tb tpmBase, ctxt []byte) ([]byte, error) {
 	return nil, errors.ErrUnsupported
 }
 
+func (k *wrappedKey) getHandle() tpmutil.HandlePublicGetter {
+	return k.hnd
+}
+
 func serializedKeyToWrappedKey(sKey *storage.SerializedKey) (*wrappedKey, error) {
 	if sKey.Encoding != storage.KeyEncodingEncrypted {
 		return nil, fmt.Errorf("unsupported key encoding: %x", sKey.Encoding)

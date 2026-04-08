@@ -88,6 +88,7 @@ type ak interface {
 	attestationParameters() AttestationParameters
 	certify(tpm transport.TPM, cfg CertifyConfig) (*CertificationParameters, error)
 	signMsg(tb tpmBase, msg []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error)
+	getHandle() tpmutil.HandlePublicGetter
 }
 
 // AK represents a key which can be used for attestation.
@@ -206,6 +207,10 @@ func (k *AK) Persist(tpm *TPM, cfg PersistConfig) error {
 	}
 
 	return nil
+}
+
+func (k *AK) GetHandle() tpmutil.HandlePublicGetter {
+	return k.ak.getHandle()
 }
 
 // EncryptedCredential represents encrypted parameters which must be activated
