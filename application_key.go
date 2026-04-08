@@ -27,6 +27,7 @@ import (
 	"github.com/loicsikidi/attest/kty"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
+	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-tpm/tpm2"
 )
@@ -39,6 +40,7 @@ type key interface {
 	sign(tpmBase, []byte, crypto.PublicKey, crypto.SignerOpts) ([]byte, error)
 	decrypt(tpmBase, []byte) ([]byte, error)
 	blobs() ([]byte, []byte, error)
+	getHandle() tpmutil.HandlePublicGetter
 }
 
 // Key represents a key which can be used for signing and decrypting
@@ -169,6 +171,10 @@ func (k *Key) GetCertificate() *x509.Certificate {
 // GetChain returns the certificate chain for the application key, or nil if no chain is available.
 func (k *Key) GetChain() []*x509.Certificate {
 	return k.chain
+}
+
+func (k *Key) GetHandle() tpmutil.HandlePublicGetter {
+	return k.key.getHandle()
 }
 
 func templateFromConfig(optionalCfg ...KeyConfig) (tpm2.TPMTPublic, error) {
