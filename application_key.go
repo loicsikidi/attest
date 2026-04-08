@@ -33,7 +33,7 @@ import (
 )
 
 type key interface {
-	close(tpmBase) error
+	close() error
 	marshal() ([]byte, error)
 	persist(tpmBase, PersistConfig) error
 	certificationParameters(...*AK) CertificationParameters
@@ -119,7 +119,7 @@ func (k *Key) Private(pub crypto.PublicKey) (crypto.PrivateKey, error) {
 
 // Close unloads the key from the system.
 func (k *Key) Close() error {
-	return k.key.close(k.tpm)
+	return k.key.close()
 }
 
 // Marshal encodes the key in a format that can be loaded with tpm.LoadKey().

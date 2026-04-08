@@ -80,7 +80,7 @@ func probeTpm(base tpmBase) error {
 }
 
 type ak interface {
-	close(tpmBase) error
+	close() error
 	marshal() ([]byte, error)
 	persist(tpmBase, PersistConfig) error
 	activateCredential(tpm tpmBase, in EncryptedCredential, ek *endorsement.EK) ([]byte, error)
@@ -107,7 +107,7 @@ func (k *AK) Public() crypto.PublicKey {
 
 // Close unloads the AK from the system.
 func (k *AK) Close(t *TPM) error {
-	return k.ak.close(t.tpm)
+	return k.ak.close()
 }
 
 // Marshal encodes the AK in a format that can be reloaded with tpm.LoadAK().
