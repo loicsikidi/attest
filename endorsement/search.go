@@ -88,11 +88,16 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 	ek.Certificate = cert
 
 	if !cfg.SkipPublicMatching {
-		pub, err := getOrCreateEKPublic(tpm, cfg.Template.Public.Type, cfg.Template)
+		handle, err := getOrCreateEKPublic(tpm, cfg.Template.Public.Type, cfg.Template)
 		if err != nil {
 			return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
 		}
-		ek.Public = pub
+		defer handle.Close() //nolint:errcheck
+
+		if handle.Type() == tpmutil.PersistentHandle {
+			ek.Handle = handle
+		}
+		ek.Public = handle.Public()
 	}
 
 	if !cfg.SkipCheck {
@@ -151,11 +156,16 @@ func Get(tpm transport.TPM, cfg GetConfig) (EK, error) {
 
 	ek := EK{Template: cfg.Template}
 
-	pub, err := getOrCreateEKPublic(tpm, cfg.Template.Public.Type, cfg.Template)
+	handle, err := getOrCreateEKPublic(tpm, cfg.Template.Public.Type, cfg.Template)
 	if err != nil {
 		return EK{}, fmt.Errorf("failed to get EK public key: %w", err)
 	}
-	ek.Public = pub
+	defer handle.Close() //nolint:errcheck
+
+	if handle.Type() == tpmutil.PersistentHandle {
+		ek.Handle = handle
+	}
+	ek.Public = handle.Public()
 
 	pubKey, err := ek.PublicKey()
 	if err != nil {
@@ -249,16 +259,15 @@ func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchCertConfig) ([]E
 
 // getOrCreateEKPublic tries to read the EK public key from persistent handle first,
 // then falls back to CreatePrimary if not found.
-func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template) (*tpm2.TPMTPublic, error) {
+func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template) (tpmutil.HandleCloser, error) {
 	handle, ok := HandleByType[alg]
 	if ok {
-		rsp, err := tpm2.ReadPublic{
-			ObjectHandle: handle,
-		}.Execute(tpm)
+		persistedHandle, err := tpmutil.GetPersistedKeyHandle(tpm, tpmutil.GetPersistedKeyHandleConfig{
+			Handle: tpmutil.NewHandle(handle),
+		})
 		if err == nil {
-			pub, err := rsp.OutPublic.Contents()
-			if err == nil && isTemplateMatch(pub, template) {
-				return pub, nil
+			if isTemplateMatch(persistedHandle.Public(), template) {
+				return persistedHandle, nil
 			}
 		}
 	}
@@ -272,9 +281,7 @@ func getOrCreateEKPublic(tpm transport.TPM, alg tpm2.TPMAlgID, template Template
 	if err != nil {
 		return nil, fmt.Errorf("CreatePrimary failed: %w", err)
 	}
-	defer ekHandle.Close() //nolint:errcheck
-
-	return ekHandle.Public(), nil
+	return ekHandle, nil
 }
 
 // isTemplateMatch verifies that the public key matches the expected template.

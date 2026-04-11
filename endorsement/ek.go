@@ -89,7 +89,11 @@ type EK struct {
 	// Template is the template used to create the EK.
 	Template Template
 
-	// Handle is the TPM handle associated with the EK.
+	// Handle is the TPM persistent handle associated with the EK.
+	// This field is only populated when the EK is persisted in the TPM at a well-known handle
+	// (0x81010001 for RSA, 0x81010002 for ECC). For non-persisted EKs, this field remains nil.
+	//
+	// EXPERIMENTAL: This field is experimental and may be removed without notice in a future release.
 	Handle tpmutil.Handle
 }
 

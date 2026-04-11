@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/loicsikidi/go-tpm-kit/tpmtest"
+	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 )
 
 func TestSearchAvailableCertificates_Integration(t *testing.T) {
@@ -169,6 +170,40 @@ func TestGetCertificate_Integration(t *testing.T) {
 		// Verify the error is related to EK check failure
 		if !strings.Contains(err.Error(), "untrusted endorsement key") {
 			t.Errorf("Expected error to contain 'untrusted endorsement key', got: %v", err)
+		}
+	})
+
+	t.Run("check Handle is populated properly", func(t *testing.T) {
+		ek, err := GetCertificate(tpm, GetCertConfig{
+			Template: TemplateECC,
+		})
+		if err != nil {
+			t.Fatalf("GetCertificate() failed: %v", err)
+		}
+
+		if ek.Handle != nil {
+			t.Error("Expected Handle to be nil (because not persisted yet)")
+		}
+
+		_, err = tpmutil.PersistEK(tpm, tpmutil.EKParentConfig{
+			KeyFamily:  tpmutil.ECC,
+			Handle:     tpmutil.NewHandle(ECCHandle),
+			KeyType:    tpmutil.ECCNISTP256,
+			IsLowRange: true,
+		})
+		if err != nil {
+			t.Fatalf("PersistEK() failed: %v", err)
+		}
+
+		ek2, err := GetCertificate(tpm, GetCertConfig{
+			Template: TemplateECC,
+		})
+		if err != nil {
+			t.Fatalf("GetCertificate() failed: %v", err)
+		}
+
+		if ek2.Handle == nil {
+			t.Error("Expected Handle to be non-nil after persisting EK")
 		}
 	})
 }
