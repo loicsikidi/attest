@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/loicsikidi/attest/algorithm"
@@ -182,12 +183,6 @@ func (k *AK) Certify(tpm *TPM, cfg CertifyConfig) (*CertificationParameters, err
 	return k.ak.certify(t.rwc, cfg)
 }
 
-// SignMsg signs the message (not the digest) with the AK. Note that AK is a
-// restricted signing key, it cannot sign a digest directly.
-func (k *AK) SignMsg(tpm *TPM, msg []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return k.ak.signMsg(tpm.Tpm(), msg, k.pub, opts)
-}
-
 // Persist stores the AK and its certificate in the TPM.
 //
 // This operation relies on the fact that a remote party ensured in a
@@ -212,6 +207,44 @@ func (k *AK) Persist(cfg PersistConfig) error {
 
 func (k *AK) GetHandle() tpmutil.HandlePublicGetter {
 	return k.ak.getHandle()
+}
+
+// externalSigner is a wrapper around an AK that implements the [crypto.MessageSigner] interface.
+//
+// This layer of abstraction allows the AK to be used to sign external messages. By external,
+// messages, we mean messages that are not TPM-specific, but rather general-purpose messages
+// that need to be signed using the AK.
+type externalSigner struct {
+	tpm transport.TPM
+	ak  ak
+	pub crypto.PublicKey
+}
+
+// Public implements the [crypto.Signer] interface.
+func (s *externalSigner) Public() crypto.PublicKey {
+	return s.pub
+}
+
+// Sign implements the [crypto.Signer] interface.
+func (s *externalSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	return nil, errors.ErrUnsupported
+}
+
+// SignMessage implements the [crypto.MessageSigner] interface.
+func (s *externalSigner) SignMessage(rand io.Reader, msg []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	// A restricted signing key can only sign a digest produced by the TPM it resides in.
+	return s.ak.signMsg(s.tpm, msg, s.pub, opts)
+}
+
+// Signer returns a [crypto.MessageSigner] that can be used to sign messages with the AK.
+//
+// WARNING: Sign is not supported and will always return an error, use SignMessage instead.
+func (k *AK) Signer() crypto.MessageSigner {
+	return &externalSigner{
+		tpm: k.tpm,
+		ak:  k.ak,
+		pub: k.pub,
+	}
 }
 
 // EncryptedCredential represents encrypted parameters which must be activated

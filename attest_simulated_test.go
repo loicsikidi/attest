@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -575,7 +576,7 @@ func TestSignMsg(t *testing.T) {
 			}
 			hashed := h.Sum(nil)
 
-			sig, err := ak.SignMsg(tpm, msg, tt.args.opts)
+			sig, err := ak.Signer().SignMessage(rand.Reader, msg, tt.args.opts)
 			if err != nil {
 				t.Fatalf("SignMsg() failed: %v", err)
 			}
@@ -880,7 +881,7 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 			}
 			hashed := h.Sum(nil)
 
-			sig, err := loadedAK.SignMsg(tpm, msg, hash)
+			sig, err := loadedAK.Signer().SignMessage(rand.Reader, msg, hash)
 			if err != nil {
 				t.Fatalf("SignMsg() with loaded AK failed: %v", err)
 			}
