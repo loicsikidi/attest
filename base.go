@@ -192,6 +192,7 @@ func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
 			rspCC.Signature,
 		),
 		pub: pubKey,
+		tpm: t.rwc,
 	}, nil
 }
 
@@ -310,7 +311,7 @@ func (t *tpmbase) loadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*
 	if err != nil {
 		return nil, fmt.Errorf("cannot convert serialized key to wrapped key: %w", err)
 	}
-	return &AK{ak: newWrappedAK(hnd, key.blob, key.public, key.createData, key.createAttestation, key.createSignature)}, nil
+	return &AK{ak: newWrappedAK(hnd, key.blob, key.public, key.createData, key.createAttestation, key.createSignature), tpm: t.rwc}, nil
 }
 
 func (t *tpmbase) pcrbanks() ([]tpm2.TPMIAlgHash, error) {
@@ -441,6 +442,7 @@ func (t *tpmbase) loadAKFromPersistent(cfg LoadConfig) (*AK, error) {
 	return &AK{
 		ak:          newWrappedAKFromPersisted(result.handle, tpm2.New2B(*result.handle.Public())),
 		pub:         result.cert.PublicKey,
+		tpm:         t.rwc,
 		certificate: result.cert,
 		chain:       result.chain,
 	}, nil

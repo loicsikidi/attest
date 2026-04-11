@@ -95,6 +95,7 @@ type ak interface {
 type AK struct {
 	ak          ak
 	pub         crypto.PublicKey
+	tpm         transport.TPM
 	certificate *x509.Certificate
 	chain       []*x509.Certificate
 }
@@ -193,7 +194,7 @@ func (k *AK) SignMsg(tpm *TPM, msg []byte, opts crypto.SignerOpts) ([]byte, erro
 // ceremony that the AK is trustworthy. Usually, the outcome of this ceremony
 // is an x509 certificate that certifies the AK.
 // Afterwards, the AK can be loaded with [TPM.LoadAKFromTPM].
-func (k *AK) Persist(tpm *TPM, cfg PersistConfig) error {
+func (k *AK) Persist(cfg PersistConfig) error {
 	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return fmt.Errorf("invalid persist config: %w", err)
 	}
@@ -202,7 +203,7 @@ func (k *AK) Persist(tpm *TPM, cfg PersistConfig) error {
 		return fmt.Errorf("certificate validation failed: %w", err)
 	}
 
-	if err := k.ak.persist(tpm.Tpm(), cfg); err != nil {
+	if err := k.ak.persist(k.tpm, cfg); err != nil {
 		return fmt.Errorf("failed to persist AK: %w", err)
 	}
 
