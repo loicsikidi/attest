@@ -52,7 +52,7 @@ type Key struct {
 	chain       []*x509.Certificate
 }
 
-// signer implements crypto.Signer returned by Key.Private().
+// signer implements [crypto.Signer] returned by [Key.Private].
 type signer struct {
 	key key
 	pub crypto.PublicKey
@@ -100,8 +100,8 @@ func (k *Key) Public() crypto.PublicKey {
 
 // Private returns an object allowing to use the TPM-backed private key.
 // For now it implements only crypto.Signer.
-func (k *Key) Private() (crypto.PrivateKey, error) {
-	return &signer{k.key, k.pub, k.tpm}, nil
+func (k *Key) Private() crypto.PrivateKey {
+	return &signer{k.key, k.pub, k.tpm}
 }
 
 // Close unloads the key from the system.
@@ -134,7 +134,7 @@ func (k *Key) Blobs() (pub, priv []byte, err error) {
 // ceremony that the application key is trustworthy. Usually, the outcome of this ceremony
 // is an x509 certificate that certifies the latter.
 // Afterwards, the application key can be loaded with [TPM.LoadKeyFromTPM].
-func (k *Key) Persist(tpm *TPM, cfg PersistConfig) error {
+func (k *Key) Persist(cfg PersistConfig) error {
 	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return fmt.Errorf("invalid persist config: %w", err)
 	}
@@ -143,7 +143,7 @@ func (k *Key) Persist(tpm *TPM, cfg PersistConfig) error {
 		return fmt.Errorf("certificate validation failed: %w", err)
 	}
 
-	if err := k.key.persist(tpm.Tpm(), cfg); err != nil {
+	if err := k.key.persist(k.tpm, cfg); err != nil {
 		return fmt.Errorf("failed to persist application key: %w", err)
 	}
 

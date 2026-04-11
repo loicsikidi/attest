@@ -499,7 +499,7 @@ func testCertificationWithCertificate(t *testing.T, tpm *TPM) {
 		Certificate: akCert,
 	}
 
-	if err := ak.Persist(tpm, persistCfg); err != nil {
+	if err := ak.Persist(persistCfg); err != nil {
 		ak.Close()
 		t.Fatalf("Persist() failed: %v", err)
 	}

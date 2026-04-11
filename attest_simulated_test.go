@@ -826,7 +826,7 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 				persistCfg.Chain = chain
 			}
 
-			if err := ak.Persist(tpm, persistCfg); err != nil {
+			if err := ak.Persist(persistCfg); err != nil {
 				ak.Close()
 				t.Fatalf("Persist() failed: %v", err)
 			}
@@ -977,7 +977,7 @@ func TestSimKeyPersistAndLoad(t *testing.T) {
 				persistCfg.Chain = chain
 			}
 
-			if err := key.Persist(tpm, persistCfg); err != nil {
+			if err := key.Persist(persistCfg); err != nil {
 				key.Close()
 				t.Fatalf("Persist() failed: %v", err)
 			}
@@ -1047,10 +1047,7 @@ func TestSimKeyPersistAndLoad(t *testing.T) {
 			}
 			hashed := h.Sum(nil)
 
-			signer, err := loadedKey.Private()
-			if err != nil {
-				t.Fatalf("Private() failed: %v", err)
-			}
+			signer := loadedKey.Private()
 
 			sig, err := signer.(crypto.Signer).Sign(nil, hashed, hash)
 			if err != nil {
