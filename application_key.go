@@ -28,15 +28,16 @@ import (
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 )
 
 type key interface {
 	close() error
 	marshal() ([]byte, error)
-	persist(tpmBase, PersistConfig) error
+	persist(transport.TPM, PersistConfig) error
 	certificationParameters(...*AK) CertificationParameters
-	sign(tpmBase, []byte, crypto.PublicKey, crypto.SignerOpts) ([]byte, error)
-	decrypt(tpmBase, []byte) ([]byte, error)
+	sign(transport.TPM, []byte, crypto.PublicKey, crypto.SignerOpts) ([]byte, error)
+	decrypt(transport.TPM, []byte) ([]byte, error)
 	blobs() ([]byte, []byte, error)
 	getHandle() tpmutil.HandlePublicGetter
 }
@@ -46,7 +47,7 @@ type key interface {
 type Key struct {
 	key         key
 	pub         crypto.PublicKey
-	tpm         tpmBase
+	tpm         transport.TPM
 	certificate *x509.Certificate
 	chain       []*x509.Certificate
 }
@@ -55,7 +56,7 @@ type Key struct {
 type signer struct {
 	key key
 	pub crypto.PublicKey
-	tpm tpmBase
+	tpm transport.TPM
 }
 
 // Sign signs digest with the TPM-stored private signing key.
@@ -142,7 +143,7 @@ func (k *Key) Persist(tpm *TPM, cfg PersistConfig) error {
 		return fmt.Errorf("certificate validation failed: %w", err)
 	}
 
-	if err := k.key.persist(tpm.tpm, cfg); err != nil {
+	if err := k.key.persist(tpm.Tpm(), cfg); err != nil {
 		return fmt.Errorf("failed to persist application key: %w", err)
 	}
 

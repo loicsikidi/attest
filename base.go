@@ -383,7 +383,7 @@ func (t *tpmbase) newKeyCertifiedByKey(certifier certifier, optionalCfg ...KeyCo
 			tpm2.New2B(*cp.CreateAttestation),
 			cp.CreateSignature),
 		pub: pubKey,
-		tpm: t,
+		tpm: t.rwc,
 	}, nil
 }
 
@@ -430,7 +430,7 @@ func (t *tpmbase) loadKeyWithParent(opaqueBlob []byte, parent ParentKeyConfig) (
 	if err != nil {
 		return nil, fmt.Errorf("access public key: %v", err)
 	}
-	return &Key{key: newWrappedKey(hnd, key.blob, key.public, key.createData, key.createAttestation, key.createSignature), pub: pub, tpm: t}, nil
+	return &Key{key: newWrappedKey(hnd, key.blob, key.public, key.createData, key.createAttestation, key.createSignature), pub: pub, tpm: t.rwc}, nil
 }
 
 func (t *tpmbase) loadAKFromPersistent(cfg LoadConfig) (*AK, error) {
@@ -454,7 +454,7 @@ func (t *tpmbase) loadKeyFromPersistent(cfg LoadConfig) (*Key, error) {
 	return &Key{
 		key:         newWrappedKeyFromPersisted(result.handle, tpm2.New2B(*result.handle.Public())),
 		pub:         result.cert.PublicKey,
-		tpm:         t,
+		tpm:         t.rwc,
 		certificate: result.cert,
 		chain:       result.chain,
 	}, nil

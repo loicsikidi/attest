@@ -98,13 +98,8 @@ func (k *wrappedKey) close() error {
 	return k.hnd.Close()
 }
 
-func (k *wrappedKey) persist(tb tpmBase, cfg PersistConfig) error {
-	t, ok := tb.(*tpmbase)
-	if !ok {
-		return fmt.Errorf("expected *tpmbase, got %T", tb)
-	}
-
-	newHandle, err := tpmutil.Persist(t.rwc, tpmutil.PersistConfig{
+func (k *wrappedKey) persist(tpm transport.TPM, cfg PersistConfig) error {
+	newHandle, err := tpmutil.Persist(tpm, tpmutil.PersistConfig{
 		TransientHandle:  k.hnd,
 		PersistentHandle: cfg.Handle,
 		Auth:             cfg.Parent.Auth,
@@ -114,8 +109,8 @@ func (k *wrappedKey) persist(tb tpmBase, cfg PersistConfig) error {
 		return fmt.Errorf("failed to persist handle: %w", err)
 	}
 
-	k.hnd = tpmutil.NewHandleCloser(t.rwc, newHandle)
-	if err := tpmutil.NVWrite(t.rwc, tpmutil.NVWriteConfig{
+	k.hnd = tpmutil.NewHandleCloser(tpm, newHandle)
+	if err := tpmutil.NVWrite(tpm, tpmutil.NVWriteConfig{
 		Index: cfg.CertNVIndex.Handle(),
 		Data:  cfg.Certificate.Raw,
 	}); err != nil {
@@ -128,7 +123,7 @@ func (k *wrappedKey) persist(tb tpmBase, cfg PersistConfig) error {
 		chainDER := sliceutil.Reduce(cfg.Chain, []byte{}, func(acc []byte, cert *x509.Certificate) []byte {
 			return append(acc, cert.Raw...)
 		})
-		if err := tpmutil.NVWrite(t.rwc, tpmutil.NVWriteConfig{
+		if err := tpmutil.NVWrite(tpm, tpmutil.NVWriteConfig{
 			Index:      cfg.CertChainNVIndexStart.Handle(),
 			Data:       chainDER,
 			MultiIndex: true,
@@ -229,33 +224,25 @@ func (k *wrappedKey) activateCredential(tb tpmBase, in EncryptedCredential, ek *
 	return activateRsp.CertInfo.Buffer, nil
 }
 
-func (k *wrappedKey) signMsg(tb tpmBase, msg []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error) {
-	t, ok := tb.(*tpmbase)
-	if !ok {
-		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
-	}
+func (k *wrappedKey) signMsg(tpm transport.TPM, msg []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error) {
 	cfg := tpmutil.HashConfig{
 		Hierarchy: tpm2.TPMRHOwner,
 		HashAlg:   opts.HashFunc(),
 		Data:      msg,
 	}
-	result, err := tpmutil.Hash(t.rwc, cfg)
+	result, err := tpmutil.Hash(tpm, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash message: %v", err)
 	}
 
-	return k.signWithValidation(tb, result.Digest, pub, opts, result.Validation)
+	return k.signWithValidation(tpm, result.Digest, pub, opts, result.Validation)
 }
 
-func (k *wrappedKey) sign(tb tpmBase, digest []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error) {
-	return k.signWithValidation(tb, digest, pub, opts, tpmutil.NullTicket)
+func (k *wrappedKey) sign(tpm transport.TPM, digest []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error) {
+	return k.signWithValidation(tpm, digest, pub, opts, tpmutil.NullTicket)
 }
 
-func (k *wrappedKey) signWithValidation(tb tpmBase, digest []byte, pub crypto.PublicKey, opts crypto.SignerOpts, validation tpm2.TPMTTKHashCheck) ([]byte, error) {
-	t, ok := tb.(*tpmbase)
-	if !ok {
-		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
-	}
+func (k *wrappedKey) signWithValidation(tpm transport.TPM, digest []byte, pub crypto.PublicKey, opts crypto.SignerOpts, validation tpm2.TPMTTKHashCheck) ([]byte, error) {
 	cfg := tpmutil.SignConfig{
 		KeyHandle:  k.hnd,
 		PublicKey:  pub,
@@ -263,22 +250,17 @@ func (k *wrappedKey) signWithValidation(tb tpmBase, digest []byte, pub crypto.Pu
 		SignerOpts: opts,
 		Digest:     digest,
 	}
-	return tpmutil.Sign(t.rwc, cfg)
+	return tpmutil.Sign(tpm, cfg)
 }
 
-func (k *wrappedKey) quote(tb tpmBase, nonce []byte, alg tpm2.TPMAlgID, selectedPCRs []int) (*quote.Quote, error) {
-	t, ok := tb.(*tpmbase)
-	if !ok {
-		return nil, fmt.Errorf("expected *tpmbase, got %T", tb)
-	}
-
+func (k *wrappedKey) quote(tpm transport.TPM, nonce []byte, alg tpm2.TPMAlgID, selectedPCRs []int) (*quote.Quote, error) {
 	uintPCRs := sliceutil.IntToUint(selectedPCRs)
 	sel := tpmutil.ToTPMLPCRSelection(uintPCRs, tpm2.TPMIAlgHash(alg))
 	rspQ, err := tpm2.Quote{
 		SignHandle:     k.hnd,
 		QualifyingData: tpm2.TPM2BData{Buffer: nonce},
 		PCRSelect:      sel,
-	}.Execute(t.rwc)
+	}.Execute(tpm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform a quote: %w", err)
 	}
@@ -336,7 +318,7 @@ func (k *wrappedKey) certificationParameters(optionalAK ...*AK) CertificationPar
 	}
 }
 
-func (k *wrappedKey) decrypt(tb tpmBase, ctxt []byte) ([]byte, error) {
+func (k *wrappedKey) decrypt(tpm transport.TPM, ciphertext []byte) ([]byte, error) {
 	return nil, errors.ErrUnsupported
 }
 
