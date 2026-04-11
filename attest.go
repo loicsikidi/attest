@@ -82,12 +82,12 @@ func probeTpm(base tpmBase) error {
 type ak interface {
 	close() error
 	marshal() ([]byte, error)
-	persist(tpmBase, PersistConfig) error
-	activateCredential(tpm tpmBase, in EncryptedCredential, ek *endorsement.EK) ([]byte, error)
-	quote(t tpmBase, nonce []byte, alg tpm2.TPMAlgID, selectedPCRs []int) (*quote.Quote, error)
+	persist(tpm transport.TPM, cfg PersistConfig) error
+	activateCredential(tb tpmBase, in EncryptedCredential, ek *endorsement.EK) ([]byte, error)
+	quote(tpm transport.TPM, nonce []byte, alg tpm2.TPMAlgID, selectedPCRs []int) (*quote.Quote, error)
 	attestationParameters() AttestationParameters
 	certify(tpm transport.TPM, cfg CertifyConfig) (*CertificationParameters, error)
-	signMsg(tb tpmBase, msg []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error)
+	signMsg(tpm transport.TPM, msg []byte, pub crypto.PublicKey, opts crypto.SignerOpts) ([]byte, error)
 	getHandle() tpmutil.HandlePublicGetter
 }
 
@@ -146,12 +146,12 @@ func (k *AK) Quote(tpm *TPM, nonce []byte, alg tpm2.TPMAlgID) (*quote.Quote, err
 	for pcr := range pcrs {
 		pcrs[pcr] = pcr
 	}
-	return k.ak.quote(tpm.tpm, nonce, alg, pcrs)
+	return k.ak.quote(tpm.Tpm(), nonce, alg, pcrs)
 }
 
 // QuotePCRs is like Quote() but allows the caller to select a subset of the PCRs.
 func (k *AK) QuotePCRs(tpm *TPM, nonce []byte, alg tpm2.TPMAlgID, pcrs []int) (*quote.Quote, error) {
-	return k.ak.quote(tpm.tpm, nonce, alg, pcrs)
+	return k.ak.quote(tpm.Tpm(), nonce, alg, pcrs)
 }
 
 // AttestationParameters returns information about the AK, typically used to
@@ -184,7 +184,7 @@ func (k *AK) Certify(tpm *TPM, cfg CertifyConfig) (*CertificationParameters, err
 // SignMsg signs the message (not the digest) with the AK. Note that AK is a
 // restricted signing key, it cannot sign a digest directly.
 func (k *AK) SignMsg(tpm *TPM, msg []byte, opts crypto.SignerOpts) ([]byte, error) {
-	return k.ak.signMsg(tpm.tpm, msg, k.pub, opts)
+	return k.ak.signMsg(tpm.Tpm(), msg, k.pub, opts)
 }
 
 // Persist stores the AK and its certificate in the TPM.
@@ -202,7 +202,7 @@ func (k *AK) Persist(tpm *TPM, cfg PersistConfig) error {
 		return fmt.Errorf("certificate validation failed: %w", err)
 	}
 
-	if err := k.ak.persist(tpm.tpm, cfg); err != nil {
+	if err := k.ak.persist(tpm.Tpm(), cfg); err != nil {
 		return fmt.Errorf("failed to persist AK: %w", err)
 	}
 
