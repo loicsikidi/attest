@@ -37,7 +37,7 @@ type GetCertConfig struct {
 }
 
 // CheckAndSetDefault validates and sets default values for GetConfig.
-func (c *GetCertConfig) CheckAndSetDefault() error {
+func (c *GetCertConfig) CheckAndSetDefaults() error {
 	if c.Template.Index == 0 {
 		return fmt.Errorf("template index cannot be 0")
 	}
@@ -74,7 +74,7 @@ func (c *GetCertConfig) CheckAndSetDefault() error {
 //		SkipCheck: true,
 //	})
 func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
-	if err := cfg.CheckAndSetDefault(); err != nil {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return EK{}, fmt.Errorf("invalid GetCertConfig: %w", err)
 	}
 
@@ -130,7 +130,7 @@ type GetConfig struct {
 }
 
 // CheckAndSetDefault validates and sets default values for GetConfig.
-func (c *GetConfig) CheckAndSetDefault() error {
+func (c *GetConfig) CheckAndSetDefaults() error {
 	if c.Template.Index == 0 {
 		return fmt.Errorf("template index cannot be 0")
 	}
@@ -145,7 +145,7 @@ func (c *GetConfig) CheckAndSetDefault() error {
 // Note: this function does NOT attempt to read the EK certificate from NVRAM.
 // Use it ONLY if you need to create an EK structure without certificate.
 func Get(tpm transport.TPM, cfg GetConfig) (EK, error) {
-	if err := cfg.CheckAndSetDefault(); err != nil {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return EK{}, fmt.Errorf("invalid GetConfig: %w", err)
 	}
 
@@ -188,7 +188,7 @@ type SearchCertConfig struct {
 }
 
 // CheckAndSetDefault validates and sets default values for SearchConfig.
-func (c *SearchCertConfig) CheckAndSetDefault() error {
+func (c *SearchCertConfig) CheckAndSetDefaults() error {
 	if c.KeyType != 0 && c.KeyType != tpm2.TPMAlgRSA && c.KeyType != tpm2.TPMAlgECC {
 		return fmt.Errorf("unsupported key type: %X", c.KeyType)
 	}
@@ -214,7 +214,7 @@ func (c *SearchCertConfig) CheckAndSetDefault() error {
 //	})
 func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchCertConfig) ([]EK, error) {
 	cfg := utils.OptionalArg(optionalCfg)
-	if err := cfg.CheckAndSetDefault(); err != nil {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return nil, err
 	}
 
