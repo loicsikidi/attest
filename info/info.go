@@ -92,7 +92,7 @@ func Get(tpm transport.TPM) (*TPMInfo, error) {
 	}
 
 	// Try to retrieve EK certificate chains
-	ekCertChains, err := GetEKCertChains(tpm)
+	ekCertChains, err := GetEKCertChains(tpm, rawInfo.NVBufferMaxSize())
 	if err != nil {
 		return nil, err
 	}
@@ -238,11 +238,12 @@ const (
 //	if len(certs) == 0 {
 //	    fmt.Println("No EK certificate chains found in NVRAM")
 //	}
-func GetEKCertChains(tpm transport.TPM) ([]*x509.Certificate, error) {
+func GetEKCertChains(tpm transport.TPM, blockSize int) ([]*x509.Certificate, error) {
 	var nilSlice []*x509.Certificate
 	data, err := tpmutil.NVRead(tpm, tpmutil.NVReadConfig{
 		Index:      EKCertChainIndexStart,
 		MultiIndex: true,
+		BlockSize:  blockSize,
 	})
 	if err != nil {
 		if errors.Is(err, tpm2.TPMRCHandle) {

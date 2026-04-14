@@ -79,8 +79,15 @@ func GetCertificate(tpm transport.TPM, cfg GetCertConfig) (EK, error) {
 	}
 
 	ek := EK{Template: cfg.Template}
+	var blockSize int
+	if cfg.Info != nil {
+		blockSize = cfg.Info.NVMaxBufferSize
+	}
 
-	cert, err := ReadEKCertFromNVRAM(tpm, cfg.Template.Index)
+	cert, err := ReadEKCertFromNVRAM(tpm, ReadEKCertFromNVRAMConfig{
+		Index:     cfg.Template.Index,
+		BlockSize: blockSize,
+	})
 	if err != nil {
 		wrap := fmt.Errorf("failed to read EK certificate from NV index %X: %w", cfg.Template.Index, err)
 		return EK{}, fmt.Errorf("%w: %w", ErrEKCertNotFound, wrap)
