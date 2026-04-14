@@ -18,6 +18,8 @@ import (
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
 )
 
+const blockSize = 1024
+
 // createTestCertificate creates a test certificate for testing purposes.
 func createTestCertificate(subject string, isCA bool, keyType string, parent *x509.Certificate, parentKey crypto.Signer) (*x509.Certificate, crypto.Signer, error) {
 	var priv crypto.Signer
@@ -157,7 +159,7 @@ func TestGetEKCertChains_MultipleIndices(t *testing.T) {
 	}
 
 	// Call GetEKCertChains
-	certs, err := GetEKCertChains(tpm)
+	certs, err := GetEKCertChains(tpm, blockSize)
 	if err != nil {
 		t.Fatalf("GetEKCertChains() failed: %v", err)
 	}
@@ -194,7 +196,7 @@ func TestGetEKCertChains_Empty(t *testing.T) {
 	tpm := tpmtest.OpenSimulator(t)
 
 	// Call GetEKCertChains without provisioning any certificates
-	certs, err := GetEKCertChains(tpm)
+	certs, err := GetEKCertChains(tpm, blockSize)
 	if err != nil {
 		t.Fatalf("GetEKCertChains() failed: %v", err)
 	}

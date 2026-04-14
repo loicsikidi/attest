@@ -34,6 +34,8 @@ import (
 	"github.com/google/go-tpm/tpm2/transport"
 )
 
+const maxNVBufferSize = 1024
+
 const (
 	manufacturerIntel     = "INTC" // Intel's ASCII manufacturer ID
 	IntelEKCertServiceURL = tpmcrypto.IntelEKCertServiceURL
@@ -249,13 +251,41 @@ func isSelfSigned(cert *x509.Certificate) bool {
 	return cert.CheckSignatureFrom(cert) == nil
 }
 
+// ReadEKCertFromNVRAMConfig configures the behavior of [ReadEKCertFromNVRAM].
+type ReadEKCertFromNVRAMConfig struct {
+	// Index is the NVRAM index where the EK certificate is stored.
+	Index tpm2.TPMHandle
+	// BlockSize is the size of the blocks to read from NVRAM.
+	//
+	// Defaults to 1024 if not set.
+	BlockSize int
+}
+
+// CheckAndSetDefaults validates the configuration.
+func (c *ReadEKCertFromNVRAMConfig) CheckAndSetDefaults() error {
+	if c.Index == 0 {
+		return errors.New("index cannot be 0")
+	}
+	if c.BlockSize == 0 {
+		c.BlockSize = maxNVBufferSize
+	}
+	return nil
+}
+
 // ReadEKCertFromNVRAM reads the EK certificate from the NVRAM index specified.
 // The function returns nil if the certificate is not found.
-func ReadEKCertFromNVRAM(tpm transport.TPM, index tpm2.TPMHandle) (*x509.Certificate, error) {
+func ReadEKCertFromNVRAM(tpm transport.TPM, cfg ReadEKCertFromNVRAMConfig) (*x509.Certificate, error) {
+	if err := cfg.CheckAndSetDefaults(); err != nil {
+		return nil, fmt.Errorf("invalid ReadEKCertFromNVRAMConfig: %w", err)
+	}
+
 	// By passing nvramCertIndex as our auth handle we're using the NV index
 	// itself as the auth hierarchy, which is the same approach
 	// tpm2_getekcertificate takes.
-	ekCert, err := tpmutil.NVRead(tpm, tpmutil.NVReadConfig{Index: index})
+	ekCert, err := tpmutil.NVRead(tpm, tpmutil.NVReadConfig{
+		Index:     cfg.Index,
+		BlockSize: cfg.BlockSize,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed reading EK cert: %w", err)
 	}

@@ -304,7 +304,9 @@ func TestSearchPersistedTemplates_Integration(t *testing.T) {
 
 		// Each persisted template should have a corresponding certificate in NVRAM
 		for _, template := range persistedTemplates {
-			_, err := ReadEKCertFromNVRAM(tpm, template.Index)
+			_, err := ReadEKCertFromNVRAM(tpm, ReadEKCertFromNVRAMConfig{
+				Index: template.Index,
+			})
 			if err != nil {
 				t.Errorf("Persisted template (index=%X) has no certificate in NVRAM: %v",
 					template.Index, err)
