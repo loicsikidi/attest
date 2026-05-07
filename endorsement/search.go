@@ -7,8 +7,8 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/loicsikidi/attest/info"
-	"github.com/loicsikidi/attest/internal/utils"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
+	goutils "github.com/loicsikidi/go-utils"
 )
 
 var (
@@ -220,7 +220,7 @@ func (c *SearchCertConfig) CheckAndSetDefaults() error {
 //		SkipCheck: true,
 //	})
 func SearchCertificates(tpm transport.TPM, optionalCfg ...SearchCertConfig) ([]EK, error) {
-	cfg := utils.OptionalArg(optionalCfg)
+	cfg := goutils.OptionalArg(optionalCfg)
 	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return nil, err
 	}
@@ -341,7 +341,7 @@ func SearchAvailableCertificates(tpm transport.TPM, optionalKty ...tpm2.TPMAlgID
 	var results []Template
 
 	// Get optional key type filter
-	keyType := utils.OptionalArg(optionalKty)
+	keyType := goutils.OptionalArg(optionalKty)
 	filterByKeyType := slices.Contains([]tpm2.TPMAlgID{tpm2.TPMAlgRSA, tpm2.TPMAlgECC}, keyType)
 
 	var templatesToCheck []Template

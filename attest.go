@@ -28,9 +28,9 @@ import (
 
 	"github.com/loicsikidi/attest/algorithm"
 	"github.com/loicsikidi/attest/endorsement"
-	"github.com/loicsikidi/attest/internal/utils"
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/attest/quote"
+	goutils "github.com/loicsikidi/go-utils"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
@@ -57,7 +57,7 @@ var (
 // OpenTPM initializes access to the TPM based on the
 // config provided.
 func OpenTPM(optionalCfg ...OpenConfig) (*TPM, error) {
-	config := utils.OptionalArg(optionalCfg)
+	config := goutils.OptionalArg(optionalCfg)
 
 	if config.Transport == nil {
 		return autoOpenTPM()

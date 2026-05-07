@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/loicsikidi/attest/internal/utils"
 	"github.com/loicsikidi/attest/kty"
+	goutils "github.com/loicsikidi/go-utils"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
@@ -165,7 +165,7 @@ func (k *Key) GetHandle() tpmutil.HandlePublicGetter {
 }
 
 func templateFromConfig(optionalCfg ...KeyConfig) (tpm2.TPMTPublic, error) {
-	opts := utils.OptionalArg(optionalCfg)
+	opts := goutils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return tpm2.TPMTPublic{}, err
 	}
