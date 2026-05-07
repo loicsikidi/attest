@@ -2,11 +2,11 @@ package pcr
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/loicsikidi/attest/algorithm"
-
-	"github.com/loicsikidi/attest/internal/utils/slices"
+	goutils "github.com/loicsikidi/go-utils"
 )
 
 type Bank struct {
@@ -21,7 +21,7 @@ type Bank struct {
 //
 //	SHA-256: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 func (b Bank) String() string {
-	pcrsStrings := slices.UintToString(b.PCRs)
+	pcrsStrings := goutils.Map(b.PCRs, func(p uint) string { return strconv.FormatUint(uint64(p), 10) })
 	return fmt.Sprintf("%s: [%s]", b.Alg.String(), strings.Join(pcrsStrings, ", "))
 }
 

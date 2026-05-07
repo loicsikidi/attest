@@ -25,11 +25,9 @@ import (
 	"github.com/loicsikidi/attest/kty"
 	"github.com/loicsikidi/attest/quote"
 	"github.com/loicsikidi/attest/storage"
+	goutils "github.com/loicsikidi/go-utils"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
-
-	"github.com/loicsikidi/attest/internal/utils"
-	sliceutil "github.com/loicsikidi/attest/internal/utils/slices"
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
@@ -120,7 +118,7 @@ func (k *wrappedKey) persist(tpm transport.TPM, cfg PersistConfig) error {
 	}
 
 	if cfg.Chain != nil {
-		chainDER := sliceutil.Reduce(cfg.Chain, []byte{}, func(acc []byte, cert *x509.Certificate) []byte {
+		chainDER := goutils.Reduce(cfg.Chain, []byte{}, func(acc []byte, cert *x509.Certificate) []byte {
 			return append(acc, cert.Raw...)
 		})
 		if err := tpmutil.NVWrite(tpm, tpmutil.NVWriteConfig{
@@ -254,7 +252,7 @@ func (k *wrappedKey) signWithValidation(tpm transport.TPM, digest []byte, pub cr
 }
 
 func (k *wrappedKey) quote(tpm transport.TPM, nonce []byte, alg tpm2.TPMAlgID, selectedPCRs []int) (*quote.Quote, error) {
-	uintPCRs := sliceutil.IntToUint(selectedPCRs)
+	uintPCRs := goutils.Map(selectedPCRs, func(p int) uint { return uint(p) })
 	sel := tpmutil.ToTPMLPCRSelection(uintPCRs, tpm2.TPMIAlgHash(alg))
 	rspQ, err := tpm2.Quote{
 		SignHandle:     k.hnd,
@@ -306,7 +304,7 @@ func (k *wrappedKey) certificationParameters(optionalAK ...*AK) CertificationPar
 	att, _ := k.createAttestation.Contents()
 
 	var cert *x509.Certificate
-	if ak := utils.OptionalArg(optionalAK); ak != nil {
+	if ak := goutils.OptionalArg(optionalAK); ak != nil {
 		cert = ak.GetCertificate()
 	}
 

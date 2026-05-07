@@ -27,12 +27,10 @@ import (
 	"github.com/loicsikidi/attest/info"
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/attest/storage"
+	goutils "github.com/loicsikidi/go-utils"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
-
-	"github.com/loicsikidi/attest/internal/utils"
-	pkgslices "github.com/loicsikidi/attest/internal/utils/slices"
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
@@ -68,7 +66,7 @@ func (t *tpmbase) info() (*info.TPMInfo, error) {
 }
 
 func (t *tpmbase) ekCertificates(optionalCfg ...SearchEKCertConfig) ([]endorsement.EK, error) {
-	cfg := utils.OptionalArg(optionalCfg)
+	cfg := goutils.OptionalArg(optionalCfg)
 	if cfg.Info == nil {
 		cfg.Info = t.cacheInfo
 	}
@@ -107,7 +105,7 @@ func (t *tpmbase) persistedEKs() []EKCertTemplate {
 }
 
 func (t *tpmbase) newAK(optionalCfg ...AKConfig) (*AK, error) {
-	opts := utils.OptionalArg(optionalCfg)
+	opts := goutils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, err
 	}
@@ -315,7 +313,7 @@ func (t *tpmbase) loadAKWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*
 }
 
 func (t *tpmbase) pcrbanks() ([]tpm2.TPMIAlgHash, error) {
-	return pkgslices.Convert(t.cacheInfo.PcrBanks, func(p pcr.Bank) tpm2.TPMIAlgHash { return tpm2.TPMIAlgHash(p.Alg) }), nil
+	return goutils.Map(t.cacheInfo.PcrBanks, func(p pcr.Bank) tpm2.TPMIAlgHash { return tpm2.TPMIAlgHash(p.Alg) }), nil
 }
 
 func (t *tpmbase) newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
@@ -329,7 +327,7 @@ func (t *tpmbase) newKey(ak *AK, optionalCfg ...KeyConfig) (*Key, error) {
 }
 
 func (t *tpmbase) newKeyCertifiedByKey(certifier certifier, optionalCfg ...KeyConfig) (*Key, error) {
-	opts := utils.OptionalArg(optionalCfg)
+	opts := goutils.OptionalArg(optionalCfg)
 	parentHnd, createResult, err := createKey(t, opts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create key: %v", err)
@@ -389,7 +387,7 @@ func (t *tpmbase) newKeyCertifiedByKey(certifier certifier, optionalCfg ...KeyCo
 }
 
 func createKey(t *tpmbase, optionalCfg ...KeyConfig) (tpmutil.Handle, *tpmutil.CreateResult, error) {
-	opts := utils.OptionalArg(optionalCfg)
+	opts := goutils.OptionalArg(optionalCfg)
 	if err := opts.CheckAndSetDefaults(); err != nil {
 		return nil, nil, err
 	}
