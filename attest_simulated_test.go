@@ -47,7 +47,7 @@ func setupSimulatedTPM(t *testing.T, optionalCfg ...tpmtest.OpenConfig) *TPM {
 
 	tpm := tpmtest.OpenSimulator(t, optionalCfg...)
 
-	attestTPM, err := OpenTPM(OpenConfig{Transport: tpm.(transport.TPMCloser)})
+	attestTPM, err := OpenTPM(OpenConfig{Transport: tpm})
 	if err != nil {
 		t.Fatal(err)
 	}
