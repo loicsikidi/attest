@@ -240,7 +240,7 @@ const (
 //	}
 func GetEKCertChains(tpm transport.TPM, blockSize int) ([]*x509.Certificate, error) {
 	var nilSlice []*x509.Certificate
-	data, err := tpmutil.NVRead(tpm, tpmutil.NVReadConfig{
+	chain, err := tpmutil.NVReadCertificates(tpm, tpmutil.NVReadConfig{
 		Index:      EKCertChainIndexStart,
 		MultiIndex: true,
 		BlockSize:  blockSize,
@@ -253,11 +253,11 @@ func GetEKCertChains(tpm transport.TPM, blockSize int) ([]*x509.Certificate, err
 		return nil, err
 	}
 
-	if len(data) == 0 {
+	if len(chain) == 0 {
 		return nilSlice, nil
 	}
 
-	return x509.ParseCertificates(data)
+	return chain, nil
 }
 
 // HasEKCertChains indicates if the TPM has EK certificate chains provisioned.

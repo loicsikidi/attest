@@ -471,26 +471,21 @@ func (t *tpmbase) loadFromPersistent(cfg LoadConfig) (*loadedtpmkey, error) {
 		return nil, fmt.Errorf("invalid load config: %w", err)
 	}
 
-	akHandle, err := tpmutil.GetPersistedKeyHandle(t.rwc, tpmutil.GetPersistedKeyHandleConfig{
+	persistentHandle, err := tpmutil.GetPersistedKeyHandle(t.rwc, tpmutil.GetPersistedKeyHandleConfig{
 		Handle: cfg.Handle,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load persistent handle: %w", err)
 	}
 
-	certDER, err := tpmutil.NVRead(t.rwc, tpmutil.NVReadConfig{
+	cert, err := tpmutil.NVReadCertificate(t.rwc, tpmutil.NVReadConfig{
 		Index: cfg.CertNVIndex.Handle(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to read certificate from NVRAM index 0x%x: %w", cfg.CertNVIndex, err)
 	}
 
-	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate: %w", err)
-	}
-
-	pubKey, err := tpmcrypto.PublicKey(akHandle.Public())
+	pubKey, err := tpmcrypto.PublicKey(persistentHandle.Public())
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert TPM public key: %w", err)
 	}
@@ -501,17 +496,13 @@ func (t *tpmbase) loadFromPersistent(cfg LoadConfig) (*loadedtpmkey, error) {
 
 	var chain []*x509.Certificate
 	if cfg.CertChainNVIndexStart != nil {
-		chainDER, err := tpmutil.NVRead(t.rwc, tpmutil.NVReadConfig{
+		chain, err = tpmutil.NVReadCertificates(t.rwc, tpmutil.NVReadConfig{
 			Index:      cfg.CertChainNVIndexStart.Handle(),
 			MultiIndex: true,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to read certificate chain from NVRAM: %w", err)
 		}
-		chain, err = x509.ParseCertificates(chainDER)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse certificate chain: %w", err)
-		}
 	}
-	return &loadedtpmkey{handle: akHandle, cert: cert, chain: chain}, nil
+	return &loadedtpmkey{handle: persistentHandle, cert: cert, chain: chain}, nil
 }
