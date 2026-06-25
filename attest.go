@@ -18,8 +18,6 @@ package attest
 import (
 	"bytes"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -31,6 +29,7 @@ import (
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/attest/quote"
 	goutils "github.com/loicsikidi/go-utils"
+	"github.com/loicsikidi/go-utils/crypto/x509util"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
@@ -194,8 +193,8 @@ func (k *AK) Persist(cfg PersistConfig) error {
 		return fmt.Errorf("invalid persist config: %w", err)
 	}
 
-	if err := validateCertificateMatchesPublicKey(cfg.Certificate, k.pub); err != nil {
-		return fmt.Errorf("certificate validation failed: %w", err)
+	if !x509util.MatchPublicKey(cfg.Certificate, k.pub) {
+		return fmt.Errorf("mismatch between certificate's public key and TPM key")
 	}
 
 	if err := k.ak.persist(k.tpm, cfg); err != nil {
@@ -357,25 +356,6 @@ func (a *AKPublic) VerifyAll(quotes []quote.Quote, pcrs []pcr.PCR, nonce []byte)
 	if len(errPCRs) > 0 {
 		return fmt.Errorf("some PCRs were not covered by a quote: %s", strings.Join(errPCRs, ", "))
 	}
-	return nil
-}
-
-// validateCertificateMatchesPublicKey verifies that the certificate's public key
-// matches the key's public key.
-func validateCertificateMatchesPublicKey(cert *x509.Certificate, pub crypto.PublicKey) error {
-	switch pubKey := pub.(type) {
-	case *rsa.PublicKey:
-		if !pubKey.Equal(cert.PublicKey) {
-			return errors.New("certificate public key does not match public key")
-		}
-	case *ecdsa.PublicKey:
-		if !pubKey.Equal(cert.PublicKey) {
-			return errors.New("certificate public key does not match public key")
-		}
-	default:
-		return fmt.Errorf("%T unsupported public key type", pub)
-	}
-
 	return nil
 }
 

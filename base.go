@@ -28,6 +28,7 @@ import (
 	"github.com/loicsikidi/attest/pcr"
 	"github.com/loicsikidi/attest/storage"
 	goutils "github.com/loicsikidi/go-utils"
+	"github.com/loicsikidi/go-utils/crypto/x509util"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
@@ -490,8 +491,8 @@ func (t *tpmbase) loadFromPersistent(cfg LoadConfig) (*loadedtpmkey, error) {
 		return nil, fmt.Errorf("failed to convert TPM public key: %w", err)
 	}
 
-	if err := validateCertificateMatchesPublicKey(cert, pubKey); err != nil {
-		return nil, fmt.Errorf("certificate/public key mismatch: %w", err)
+	if !x509util.MatchPublicKey(cert, pubKey) {
+		return nil, fmt.Errorf("certificate/public key mismatch")
 	}
 
 	var chain []*x509.Certificate
