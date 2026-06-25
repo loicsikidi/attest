@@ -150,6 +150,12 @@ func (t *TPM) LoadKey(opaqueBlob []byte) (*Key, error) {
 	return t.tpm.loadKey(opaqueBlob)
 }
 
+// LoadKeyWithParent loads a previously-created application key into the TPM
+// under the given parent for use.
+func (t *TPM) LoadKeyWithParent(opaqueBlob []byte, parent ParentKeyConfig) (*Key, error) {
+	return t.tpm.loadKeyWithParent(opaqueBlob, parent)
+}
+
 // LoadKeyFromTPM loads a previously persisted application key from the TPM.
 func (t *TPM) LoadKeyFromTPM(cfg LoadConfig) (*Key, error) {
 	return t.tpm.loadKeyFromPersistent(cfg)

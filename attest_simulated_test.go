@@ -895,6 +895,104 @@ func TestSimAKPersistAndLoad(t *testing.T) {
 	}
 }
 
+func testKeyCreateAndLoad(t *testing.T, tpm *TPM, keyOpts []KeyConfig, parentCfg *ParentKeyConfig) {
+	t.Helper()
+
+	// Create AK first (needed to certify the application key)
+	ak, err := tpm.NewAK()
+	if err != nil {
+		t.Fatalf("NewAK() failed: %v", err)
+	}
+	defer ak.Close()
+
+	key, err := tpm.NewKey(ak, keyOpts...)
+	if err != nil {
+		t.Fatalf("NewKey() failed: %v", err)
+	}
+
+	enc, err := key.Marshal()
+	if err != nil {
+		key.Close()
+		t.Fatalf("key.Marshal() failed: %v", err)
+	}
+	if err := key.Close(); err != nil {
+		t.Fatalf("key.Close() failed: %v", err)
+	}
+
+	var loaded *Key
+	if parentCfg == nil {
+		loaded, err = tpm.LoadKey(enc)
+	} else {
+		loaded, err = tpm.LoadKeyWithParent(enc, *parentCfg)
+	}
+	if err != nil {
+		t.Fatalf("LoadKey() failed: %v", err)
+	}
+	defer loaded.Close()
+
+	k1, k2 := key.key.(*wrappedKey), loaded.key.(*wrappedKey)
+
+	if !reflect.DeepEqual(k1.public, k2.public) {
+		t.Error("Public keys do not match")
+	}
+}
+
+func TestSimKeyCreateAndLoad(t *testing.T) {
+	tpm := setupSimulatedTPM(t)
+	for _, test := range []struct {
+		name string
+		opts []KeyConfig
+	}{
+		{
+			name: "NoConfig",
+			opts: nil,
+		},
+		{
+			name: "EmptyConfig",
+			opts: []KeyConfig{},
+		},
+		{
+			name: "RSA",
+			opts: []KeyConfig{{KeyType: kty.RSA_2048}},
+		},
+		{
+			name: "ECC_P256",
+			opts: []KeyConfig{{KeyType: kty.ECC_P256}},
+		},
+		{
+			name: "ECC_P384",
+			opts: []KeyConfig{{KeyType: kty.ECC_P384}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testKeyCreateAndLoad(t, tpm, test.opts, nil)
+		})
+	}
+}
+
+func TestSimKeyCreateAndLoadWithCustomParent(t *testing.T) {
+	tpm := setupSimulatedTPM(t)
+
+	tests := []struct {
+		name      string
+		parentCfg ParentKeyConfig
+	}{
+		{
+			name: "Key under ECC SRK",
+			parentCfg: ParentKeyConfig{
+				SRKAlgorithm: algorithm.ECDSA,
+				SRKHandle:    0x81000002,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testKeyCreateAndLoad(t, tpm, []KeyConfig{{Parent: &tt.parentCfg}}, &tt.parentCfg)
+		})
+	}
+}
+
 func TestSimKeyPersistAndLoad(t *testing.T) {
 	tests := []struct {
 		name      string
