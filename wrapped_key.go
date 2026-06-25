@@ -108,9 +108,8 @@ func (k *wrappedKey) persist(tpm transport.TPM, cfg PersistConfig) error {
 	}
 
 	k.hnd = tpmutil.NewHandleCloser(tpm, newHandle)
-	if err := tpmutil.NVWrite(tpm, tpmutil.NVWriteConfig{
+	if err := tpmutil.NVWriteCertificate(tpm, cfg.Certificate, tpmutil.NVWriteConfig{
 		Index: cfg.CertNVIndex.Handle(),
-		Data:  cfg.Certificate.Raw,
 	}); err != nil {
 		// TODO(lsikidi): if NVWrite fails, we should potentially evict the persisted handle
 		// to maintain consistency (transaction-like behavior)
@@ -118,13 +117,8 @@ func (k *wrappedKey) persist(tpm transport.TPM, cfg PersistConfig) error {
 	}
 
 	if cfg.Chain != nil {
-		chainDER := goutils.Reduce(cfg.Chain, []byte{}, func(acc []byte, cert *x509.Certificate) []byte {
-			return append(acc, cert.Raw...)
-		})
-		if err := tpmutil.NVWrite(tpm, tpmutil.NVWriteConfig{
-			Index:      cfg.CertChainNVIndexStart.Handle(),
-			Data:       chainDER,
-			MultiIndex: true,
+		if err := tpmutil.NVWriteCertificates(tpm, cfg.Chain, tpmutil.NVWriteConfig{
+			Index: cfg.CertChainNVIndexStart.Handle(),
 		}); err != nil {
 			return fmt.Errorf("failed to write certificate chain to NVRAM: %w", err)
 		}
