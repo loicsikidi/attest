@@ -23,6 +23,7 @@ import (
 
 	"github.com/loicsikidi/attest/kty"
 	goutils "github.com/loicsikidi/go-utils"
+	"github.com/loicsikidi/go-utils/crypto/x509util"
 
 	"github.com/loicsikidi/go-tpm-kit/tpmcrypto"
 	"github.com/loicsikidi/go-tpm-kit/tpmutil"
@@ -139,8 +140,8 @@ func (k *Key) Persist(cfg PersistConfig) error {
 		return fmt.Errorf("invalid persist config: %w", err)
 	}
 
-	if err := validateCertificateMatchesPublicKey(cfg.Certificate, k.pub); err != nil {
-		return fmt.Errorf("certificate validation failed: %w", err)
+	if !x509util.MatchPublicKey(cfg.Certificate, k.pub) {
+		return fmt.Errorf("mismatch between certificate's public key and TPM key")
 	}
 
 	if err := k.key.persist(k.tpm, cfg); err != nil {
